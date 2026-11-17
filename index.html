@@ -1,0 +1,4028 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Hollowbell</title>
+<style>
+  * { box-sizing: border-box; user-select: none; -webkit-user-select: none; margin: 0; padding: 0; }
+  html, body {
+    width: 100%; height: 100%;
+    background: #07060f;
+    color: #e6e4f0;
+    font-family: 'Courier New', Consolas, monospace;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+  }
+  #stage-wrap {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    flex: 1;
+    min-height: 0;
+    padding: 8px;
+  }
+  canvas {
+    background: #000;
+    border: 3px solid #2a2648;
+    border-radius: 6px;
+    box-shadow: 0 0 40px rgba(0, 0, 0, 0.9), 0 0 18px rgba(200, 160, 60, 0.15);
+    image-rendering: pixelated;
+    max-width: 100%;
+    max-height: 100%;
+    aspect-ratio: 4 / 3;
+    display: block;
+  }
+  #toolbar {
+    display: flex;
+    gap: 10px;
+    padding: 6px 12px;
+    align-items: center;
+    justify-content: center;
+    flex-wrap: wrap;
+    font-size: 12px;
+    color: #8c88a8;
+  }
+  .btn {
+    background: #161428;
+    color: #dcd8f0;
+    border: 1px solid #3c3664;
+    border-radius: 6px;
+    padding: 5px 10px;
+    font-family: inherit;
+    font-size: 12px;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+  }
+  .btn:hover { background: #23203e; border-color: #c8a03c; color: #ffe63c; }
+  .btn:active { transform: translateY(1px); }
+
+  /* Mobile / Touch Pad */
+  #touch-controls {
+    display: none;
+    width: 100%;
+    max-width: 640px;
+    padding: 6px 14px 12px;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+  }
+  @media (pointer: coarse), (max-width: 720px) {
+    #touch-controls { display: flex; }
+  }
+  .dpad {
+    display: grid;
+    grid-template-columns: repeat(3, 44px);
+    grid-template-rows: repeat(3, 44px);
+    gap: 4px;
+  }
+  .tbtn {
+    background: rgba(28, 24, 56, 0.85);
+    border: 2px solid #4a437a;
+    border-radius: 10px;
+    color: #fff;
+    font-family: inherit;
+    font-weight: bold;
+    font-size: 15px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    touch-action: manipulation;
+  }
+  .tbtn:active, .tbtn.pressed {
+    background: #c8a03c;
+    color: #000;
+    border-color: #ffe63c;
+  }
+  .act-pad {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+  }
+  .act-pad .tbtn {
+    width: 54px;
+    height: 54px;
+    border-radius: 50%;
+    font-size: 16px;
+  }
+  .tbtn-c { border-color: #466eff; }
+  .tbtn-x { border-color: #ff8c00; }
+  .tbtn-z { border-color: #ffe63c; width: 62px !important; height: 62px !important; }
+</style>
+</head>
+<body>
+
+<div id="stage-wrap">
+  <canvas id="game" width="640" height="480"></canvas>
+</div>
+
+<div id="toolbar">
+  <span>Move: Arrows/WASD &bull; Confirm/Jump: Z/Enter/Space &bull; Back/Slow: X/Shift &bull; Menu: C/Tab</span>
+  <button class="btn" id="btn-mute">Sound: ON (M)</button>
+  <button class="btn" id="btn-fs">Fullscreen (F11)</button>
+</div>
+
+<div id="touch-controls">
+  <div class="dpad">
+    <div></div>
+    <button class="tbtn" data-key="ArrowUp">&#9650;</button>
+    <div></div>
+    <button class="tbtn" data-key="ArrowLeft">&#9664;</button>
+    <div></div>
+    <button class="tbtn" data-key="ArrowRight">&#9654;</button>
+    <div></div>
+    <button class="tbtn" data-key="ArrowDown">&#9660;</button>
+    <div></div>
+  </div>
+  <div class="act-pad">
+    <button class="tbtn tbtn-c" data-key="KeyC">C</button>
+    <button class="tbtn tbtn-x" data-key="KeyX">X</button>
+    <button class="tbtn tbtn-z" data-key="KeyZ">Z</button>
+  </div>
+</div>
+
+<script>
+(() => {
+  "use strict";
+
+  // =========================================================================
+  // CONSTANTS & COLORS
+  // =========================================================================
+  const W = 640, H = 480;
+  const TILE = 32;
+  const COLS = W / TILE, ROWS = H / TILE;
+
+  const BLACK  = "#000000";
+  const WHITE  = "#ffffff";
+  const YELLOW = "#ffe63c";
+  const ORANGE = "#ff8c00";
+  const RED    = "#ff0000";
+  const BLUE   = "#466eff";
+  const GREEN  = "#3cdc5a";
+  const GREY   = "#6e6e6e";
+  const NIGHT  = "#0c0a1e";
+  const MOON   = "#e6e6c8";
+  const RIDGE  = "#1c1838";
+  const BELL   = "#c8a03c";
+
+  const rgb = (r, g, b, a = 1) => a < 1 ? `rgba(${r|0},${g|0},${b|0},${a})` : `rgb(${r|0},${g|0},${b|0})`;
+  const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+  const randRange = (a, b) => a + Math.random() * (b - a);
+  const randChoice = (arr) => arr[(Math.random() * arr.length) | 0];
+  const rectOverlap = (a, b) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+  const rectContains = (r, px, py) => px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h;
+  const rectInflate = (r, dw, dh) => ({ x: r.x - dw / 2, y: r.y - dh / 2, w: r.w + dw, h: r.h + dh });
+
+  // =========================================================================
+  // KEYBOARD & INPUT STATE
+  // =========================================================================
+  const keysDown = new Set();
+  const CONFIRM_CODES = new Set(["KeyZ", "Enter", "Space", "NumpadEnter"]);
+  const SKIP_CODES    = new Set(["KeyX", "ShiftLeft", "ShiftRight"]);
+  const BACK_CODES    = new Set(["KeyX", "ShiftLeft", "ShiftRight", "Backspace"]);
+  const PAUSE_CODES   = new Set(["KeyC", "Tab"]);
+  const LEFT_CODES    = new Set(["ArrowLeft", "KeyA"]);
+  const RIGHT_CODES   = new Set(["ArrowRight", "KeyD"]);
+  const UP_CODES      = new Set(["ArrowUp", "KeyW"]);
+  const DOWN_CODES    = new Set(["ArrowDown", "KeyS"]);
+
+  const isHeld = (codes) => {
+    for (const c of codes) if (keysDown.has(c)) return true;
+    return false;
+  };
+
+  // =========================================================================
+  // FONT & TEXT HELPERS
+  // =========================================================================
+  const FONT_FAMILY = "'Courier New', Consolas, 'DejaVu Sans Mono', monospace";
+  const setFont = (ctx, size, bold = true) => {
+    ctx.font = `${bold ? "bold " : ""}${size}px ${FONT_FAMILY}`;
+    ctx.textBaseline = "top";
+  };
+
+  const measureTextW = (ctx, text, size) => {
+    setFont(ctx, size);
+    return ctx.measureText(text).width;
+  };
+
+  function wrapText(ctx, text, size, width) {
+    setFont(ctx, size);
+    const lines = [];
+    for (const paragraph of text.split("\n")) {
+      let cur = "";
+      for (const word of paragraph.split(" ")) {
+        const test = cur ? cur + " " + word : word;
+        if (ctx.measureText(test).width <= width) {
+          cur = test;
+        } else {
+          if (cur) lines.push(cur);
+          cur = word;
+        }
+      }
+      lines.push(cur);
+    }
+    return lines;
+  }
+
+  function paginateText(ctx, text, size, width, maxLines) {
+    const lines = wrapText(ctx, text, size, width);
+    const pages = [];
+    for (let i = 0; i < lines.length; i += maxLines) {
+      pages.push(lines.slice(i, i + maxLines).join("\n"));
+    }
+    return pages.length ? pages : [""];
+  }
+
+  function drawTyped(ctx, size, text, shown, x, y, lh, color = WHITE) {
+    setFont(ctx, size);
+    ctx.fillStyle = color;
+    let remaining = shown;
+    for (const line of text.split("\n")) {
+      const part = line.slice(0, Math.max(0, remaining));
+      remaining -= line.length + 1;
+      if (part) ctx.fillText(part, x, y);
+      y += lh;
+    }
+  }
+
+  function drawCenteredText(ctx, text, size, cx, cy, color = WHITE, alpha = 1) {
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    setFont(ctx, size);
+    ctx.fillStyle = color;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(text, cx, cy);
+    ctx.restore();
+  }
+
+  class Typewriter {
+    constructor(text, speed = 30, voice = null) {
+      this.text = text;
+      this.speed = speed;
+      this.timer = 0.0;
+      this.voice = voice;
+      this._last = 0;
+    }
+    get shown() {
+      return Math.min(this.text.length, Math.floor(this.timer * this.speed));
+    }
+    get done() {
+      return this.shown >= this.text.length;
+    }
+    update(dt) {
+      this.timer += dt;
+      const n = this.shown;
+      if (this.voice && n > this._last && AUDIO) {
+        const ch = this.text[n - 1];
+        if (ch !== " " && ch !== "\n" && n % 2 === 0) {
+          AUDIO.sfx(this.voice);
+        }
+      }
+      this._last = n;
+    }
+    finish() {
+      this.timer = this.text.length / this.speed;
+      this._last = this.text.length;
+    }
+  }
+
+  // =========================================================================
+  // UI DRAWING PRIMITIVES
+  // =========================================================================
+  function drawPanel(ctx, r, border = WHITE) {
+    ctx.fillStyle = BLACK;
+    ctx.fillRect(r.x, r.y, r.w, r.h);
+    ctx.strokeStyle = border;
+    ctx.lineWidth = 4;
+    ctx.strokeRect(r.x + 2, r.y + 2, r.w - 4, r.h - 4);
+  }
+
+  function drawHeart(ctx, x, y, size = 8, color = RED) {
+    const r = size * 0.55;
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(x - size * 0.5, y - size * 0.3, r, 0, Math.PI * 2);
+    ctx.arc(x + size * 0.5, y - size * 0.3, r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(x - size * 1.03, y - size * 0.05);
+    ctx.lineTo(x + size * 1.03, y - size * 0.05);
+    ctx.lineTo(x, y + size * 1.0);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  function drawMenuList(ctx, size, labels, sub, x, y, lh, rows = 3) {
+    let start = 0;
+    if (labels.length > rows) {
+      start = Math.min(Math.max(0, sub - rows + 1), labels.length - rows);
+    }
+    setFont(ctx, size);
+    ctx.fillStyle = WHITE;
+    const slice = labels.slice(start, start + rows);
+    slice.forEach((label, n) => {
+      ctx.fillText("* " + label, x, y + n * lh);
+    });
+    drawHeart(ctx, x - 20, y + (sub - start) * lh + 10, 7);
+    ctx.fillStyle = GREY;
+    if (start > 0) {
+      ctx.beginPath();
+      ctx.moveTo(x + 440, y + 6);
+      ctx.lineTo(x + 450, y + 6);
+      ctx.lineTo(x + 445, y - 2);
+      ctx.closePath();
+      ctx.fill();
+    }
+    if (start + rows < labels.length) {
+      ctx.beginPath();
+      ctx.moveTo(x + 440, y + rows * lh - 8);
+      ctx.lineTo(x + 450, y + rows * lh - 8);
+      ctx.lineTo(x + 445, y + rows * lh);
+      ctx.closePath();
+      ctx.fill();
+    }
+  }
+
+  // =========================================================================
+  // PROCEDURAL WEB AUDIO SYNTHESIZER (16 SFX + 10 LOOPING CHIPTUNE TRACKS)
+  // =========================================================================
+  const hz = (midi) => 440.0 * Math.pow(2, (midi - 69) / 12);
+
+  const TRACKS = {
+    title:  [[69, 0, 72, 0, 76, 0, 72, 0, 67, 0, 71, 0, 74, 0, 71, 0],
+             [45, 45, 43, 43, 41, 41, 43, 43], 0.32, "triangle", 0.20],
+    cave:   [[57, 0, 60, 0, 64, 0, 60, 0, 55, 0, 59, 0, 62, 0, 59, 0],
+             [33, 33, 31, 31, 29, 29, 31, 31], 0.45, "triangle", 0.22],
+    battle: [[76, 0, 76, 72, 0, 72, 69, 72, 74, 0, 74, 71, 0, 71, 67, 71,
+              76, 76, 0, 79, 76, 0, 72, 69, 71, 72, 74, 76, 74, 72, 71, 0],
+             [45, 45, 41, 41, 43, 43, 40, 40, 45, 45, 41, 41, 43, 43, 47, 47],
+             0.14, "square", 0.12],
+    boss:   [[64, 64, 0, 64, 63, 0, 64, 67, 0, 64, 64, 0, 62, 0, 60, 59,
+              64, 64, 0, 64, 66, 0, 67, 71, 0, 69, 67, 0, 66, 0, 64, 0],
+             [40, 40, 40, 40, 38, 38, 38, 38, 36, 36, 36, 36, 35, 35, 35, 35],
+             0.12, "square", 0.12],
+    shop:   [[72, 76, 79, 76, 72, 76, 79, 84, 71, 74, 79, 74, 71, 74, 79, 83],
+             [48, 48, 43, 43, 47, 47, 43, 43], 0.22, "square", 0.10],
+    ending: [[72, 0, 76, 79, 0, 76, 72, 0, 69, 0, 72, 76, 0, 72, 69, 0],
+             [48, 48, 45, 45, 41, 41, 43, 43], 0.40, "triangle", 0.22],
+    roots:  [[62, 0, 65, 0, 69, 0, 65, 0, 60, 0, 64, 0, 67, 0, 64, 0],
+             [38, 38, 36, 36, 34, 34, 36, 36], 0.40, "triangle", 0.22],
+    quiet:  [[60, 0, 0, 64, 0, 0, 67, 0, 65, 0, 0, 62, 0, 0, 59, 0],
+             [36, 36, 31, 31, 33, 33, 31, 31], 0.50, "triangle", 0.20],
+    forge:  [[57, 0, 57, 60, 0, 57, 0, 55, 57, 0, 57, 62, 0, 60, 0, 57,
+              55, 0, 55, 58, 0, 55, 0, 53, 55, 0, 55, 60, 0, 58, 0, 55],
+             [33, 33, 33, 33, 31, 31, 31, 31, 29, 29, 29, 29, 31, 31, 31, 31],
+             0.18, "square", 0.11],
+    heart:  [[69, 0, 72, 69, 0, 72, 76, 0, 74, 72, 0, 69, 67, 0, 69, 0,
+              69, 0, 72, 69, 0, 72, 77, 0, 76, 74, 0, 72, 71, 0, 69, 0],
+             [45, 45, 45, 45, 43, 43, 43, 43, 41, 41, 41, 41, 40, 40, 43, 43],
+             0.11, "square", 0.12],
+  };
+
+  class AudioEngine {
+    constructor() {
+      this.ctx = null;
+      this.masterGain = null;
+      this.musicGain = null;
+      this.sfxGain = null;
+      this.noiseBuffer = null;
+      this.currentTrack = null;
+      this.stepIndex = 0;
+      this.stepTimer = 0;
+      this.muted = false;
+    }
+
+    unlock() {
+      if (!this.ctx) {
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        if (!AudioCtx) return;
+        this.ctx = new AudioCtx();
+        this.masterGain = this.ctx.createGain();
+        this.masterGain.gain.value = this.muted ? 0 : 0.7;
+        this.masterGain.connect(this.ctx.destination);
+
+        this.musicGain = this.ctx.createGain();
+        this.musicGain.gain.value = 0.5;
+        this.musicGain.connect(this.masterGain);
+
+        this.sfxGain = this.ctx.createGain();
+        this.sfxGain.gain.value = 0.65;
+        this.sfxGain.connect(this.masterGain);
+
+        // Prebuild white noise buffer
+        const sr = this.ctx.sampleRate;
+        this.noiseBuffer = this.ctx.createBuffer(1, sr * 1.5, sr);
+        const data = this.noiseBuffer.getChannelData(0);
+        for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+      }
+      if (this.ctx && this.ctx.state === "suspended") {
+        this.ctx.resume();
+      }
+    }
+
+    toggleMute() {
+      this.muted = !this.muted;
+      if (this.masterGain && this.ctx) {
+        this.masterGain.gain.setValueAtTime(this.muted ? 0 : 0.7, this.ctx.currentTime);
+      }
+      const btn = document.getElementById("btn-mute");
+      if (btn) btn.textContent = `Sound: ${this.muted ? "OFF" : "ON"} (M)`;
+    }
+
+    _tone(freq, dur, vol = 0.25, type = "square", decay = 1.0, delay = 0, dest = null) {
+      if (!this.ctx || this.muted || freq <= 0) return;
+      const now = this.ctx.currentTime + delay;
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = type === "tri" ? "triangle" : type;
+      osc.frequency.setValueAtTime(freq, now);
+
+      const endVol = Math.max(0.0001, vol * (1 - decay * 0.92));
+      gain.gain.setValueAtTime(0.0001, now);
+      gain.gain.linearRampToValueAtTime(vol, now + 0.003);
+      gain.gain.exponentialRampToValueAtTime(endVol, now + dur);
+
+      osc.connect(gain);
+      gain.connect(dest || this.sfxGain);
+      osc.start(now);
+      osc.stop(now + dur + 0.01);
+    }
+
+    _noise(dur, vol = 0.3, delay = 0) {
+      if (!this.ctx || this.muted || !this.noiseBuffer) return;
+      const now = this.ctx.currentTime + delay;
+      const src = this.ctx.createBufferSource();
+      src.buffer = this.noiseBuffer;
+      const gain = this.ctx.createGain();
+      gain.gain.setValueAtTime(vol, now);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + dur);
+      src.connect(gain);
+      gain.connect(this.sfxGain);
+      src.start(now);
+      src.stop(now + dur + 0.01);
+    }
+
+    _seq(notes, vol = 0.25, type = "square", decay = 0.5) {
+      let t = 0;
+      for (const [f, d] of notes) {
+        if (f > 0) this._tone(f, d, vol, type, decay, t);
+        t += d;
+      }
+    }
+
+    sfx(name) {
+      this.unlock();
+      if (!this.ctx || this.muted) return;
+      switch (name) {
+        case "blip":
+          this._tone(520, 0.035, 0.14, "square", 0.6);
+          break;
+        case "blip_low":
+          this._tone(290, 0.04, 0.16, "square", 0.6);
+          break;
+        case "select":
+          this._tone(760, 0.05, 0.18, "square", 0.5);
+          break;
+        case "confirm":
+          this._seq([[660, 0.05], [990, 0.08]], 0.18);
+          break;
+        case "hit":
+          this._noise(0.14, 0.35);
+          this._tone(140, 0.14, 0.3, "square", 1.0);
+          break;
+        case "slash":
+          this._noise(0.22, 0.32);
+          break;
+        case "heal":
+          this._seq([[523, 0.06], [659, 0.06], [784, 0.06], [1047, 0.12]], 0.25, "triangle");
+          break;
+        case "buy":
+          this._seq([[880, 0.05], [1320, 0.09]], 0.20);
+          break;
+        case "alert":
+          this._seq([[900, 0.1], [0, 0.03], [900, 0.14]], 0.24);
+          break;
+        case "door":
+          this._noise(0.15, 0.16);
+          this._tone(220, 0.2, 0.22, "triangle", 1.0);
+          break;
+        case "save":
+          this._seq([[523, 0.08], [659, 0.08], [784, 0.08], [1047, 0.08], [1319, 0.2]], 0.25, "triangle");
+          break;
+        case "bell":
+          this._tone(523, 1.6, 0.38, "triangle", 1.0);
+          this._tone(1047, 1.6, 0.15, "triangle", 1.0);
+          break;
+        case "break":
+          this._seq([[400, 0.1], [300, 0.1], [200, 0.25]], 0.26, "square", 0.8);
+          break;
+        case "error":
+          this._seq([[200, 0.08], [160, 0.12]], 0.22);
+          break;
+        case "page":
+          this._seq([[880, 0.06], [1175, 0.06], [1568, 0.12]], 0.24, "triangle");
+          break;
+        case "unlock":
+          this._seq([[300, 0.08], [450, 0.08], [700, 0.14]], 0.22);
+          break;
+      }
+    }
+
+    playMusic(name) {
+      if (name === this.currentTrack) return;
+      this.currentTrack = name;
+      this.stepIndex = 0;
+      this.stepTimer = 0;
+    }
+
+    update(dt) {
+      if (!this.ctx || this.ctx.state !== "running" || !this.currentTrack || this.muted) return;
+      const tr = TRACKS[this.currentTrack];
+      if (!tr) return;
+      const [melody, bass, step, kind, vol] = tr;
+      this.stepTimer -= dt;
+      while (this.stepTimer <= 0) {
+        const mNote = melody[this.stepIndex % melody.length];
+        if (mNote > 0) {
+          this._tone(hz(mNote), step * 0.92, vol, kind, 0.6, 0, this.musicGain);
+        }
+        if (this.stepIndex % 2 === 0) {
+          const bNote = bass[(this.stepIndex >> 1) % bass.length];
+          if (bNote > 0) {
+            this._tone(hz(bNote), step * 1.9, 0.22, "triangle", 0.25, 0, this.musicGain);
+          }
+        }
+        this.stepIndex = (this.stepIndex + 1) % melody.length;
+        this.stepTimer += step;
+      }
+    }
+  }
+
+  const AUDIO = new AudioEngine();
+
+  // =========================================================================
+  // GAME DATA: ITEMS, EXP, SHOPS
+  // =========================================================================
+  const EXP_TABLE = [0, 8, 20, 40, 70, 110, 160, 230, 320];
+  const INVENTORY_MAX = 8;
+  const ITEMS = {
+    "Glow Berry":    { type: "heal", amount: 8,  price: 10,  desc: "Faintly glowing fruit. Heals 8 HP." },
+    "Honey Biscuit": { type: "heal", amount: 16, price: 28,  desc: "Warm and sweet. Heals 16 HP." },
+    "Spore Tea":     { type: "heal", amount: 20, price: 32,  desc: "Earthy and calming. Heals 20 HP." },
+    "Ember Bun":     { type: "heal", amount: 24, price: 40,  desc: "Still warm from the forge. Heals 24 HP." },
+    "Moonmilk":      { type: "heal", amount: 30, price: 65,  desc: "Cool, silvery milk. Heals 30 HP." },
+    "Heartroot Sap": { type: "heal", amount: 45, price: 95,  desc: "Thick, golden, humming. Heals 45 HP." },
+    "Twig":          { type: "weapon", atk: 0,   price: 0,   desc: "A plain twig. ATK +0." },
+    "Brass Rod":     { type: "weapon", atk: 3,   price: 70,  desc: "A bell-keeper's rod. ATK +3." },
+    "Lantern Staff": { type: "weapon", atk: 6,   price: 150, desc: "Glows when swung. ATK +6." },
+    "Ink Quill":     { type: "weapon", atk: 5,   price: 110, desc: "Writes sharp little words. ATK +5." },
+    "Cinder Blade":  { type: "weapon", atk: 9,   price: 230, desc: "Warm to the touch. ATK +9." },
+    "Wool Scarf":    { type: "armor", def: 0,    price: 0,   desc: "Cozy, not protective. DEF +0." },
+    "Moth Cloak":    { type: "armor", def: 2,    price: 80,  desc: "Soft grey wool. DEF +2." },
+    "Ash Mantle":    { type: "armor", def: 4,    price: 140, desc: "Heavy, heat-proof wool. DEF +4." },
+    "Echo Locket":   { type: "armor", def: 5,    price: 0,   desc: "Hums a quiet tune. DEF +5." },
+  };
+
+  // =========================================================================
+  // PROCEDURAL CHARACTER & SPRITE RENDERERS
+  // =========================================================================
+  function fillEllipse(ctx, x, y, w, h, color) {
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.ellipse(x + w / 2, y + h / 2, Math.max(0.5, w / 2), Math.max(0.5, h / 2), 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  function strokeEllipse(ctx, x, y, w, h, color, lw = 2) {
+    ctx.strokeStyle = color;
+    ctx.lineWidth = lw;
+    ctx.beginPath();
+    ctx.ellipse(x + w / 2, y + h / 2, Math.max(0.5, w / 2), Math.max(0.5, h / 2), 0, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
+  function fillCircle(ctx, cx, cy, r, color) {
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(cx, cy, Math.max(0.5, r), 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  function strokeCircle(ctx, cx, cy, r, color, lw = 2) {
+    ctx.strokeStyle = color;
+    ctx.lineWidth = lw;
+    ctx.beginPath();
+    ctx.arc(cx, cy, Math.max(0.5, r), 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
+  function fillPoly(ctx, pts, color) {
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.moveTo(pts[0][0], pts[0][1]);
+    for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  function drawLine(ctx, x1, y1, x2, y2, color, lw = 1) {
+    ctx.strokeStyle = color;
+    ctx.lineWidth = lw;
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+  }
+
+  function drawWick(ctx, bx, by, t) {
+    fillEllipse(ctx, bx - 14, by - 5, 28, 10, BLACK);
+    fillPoly(ctx, [[bx - 13, by], [bx + 13, by], [bx + 8, by - 34], [bx - 8, by - 34]], rgb(160, 95, 70));
+    drawLine(ctx, bx - 12, by - 3, bx + 12, by - 3, rgb(210, 160, 90), 2);
+    ctx.fillStyle = rgb(140, 80, 60);
+    ctx.fillRect(bx - 15, by - 30, 5, 16);
+    ctx.fillRect(bx + 10, by - 30, 5, 16);
+    fillCircle(ctx, bx + 17, by - 12, 6, rgb(255, 200, 80));
+    fillCircle(ctx, bx + 17, by - 12, 3, rgb(255, 255, 210));
+    ctx.fillStyle = rgb(240, 230, 200);
+    ctx.fillRect(bx - 7, by - 52, 14, 19);
+    const flick = Math.sin(t * 10);
+    fillEllipse(ctx, bx - 5, by - 69 + flick, 10, 16, rgb(255, 160, 40));
+    fillEllipse(ctx, bx - 3, by - 65 + flick, 6, 10, rgb(255, 235, 130));
+    ctx.fillStyle = rgb(40, 30, 40);
+    ctx.fillRect(bx - 4, by - 45, 2, 3);
+    ctx.fillRect(bx + 2, by - 45, 2, 3);
+    drawLine(ctx, bx - 3, by - 39, bx + 3, by - 39, rgb(40, 30, 40), 1);
+  }
+
+  function drawMothlet(ctx, cx, cy, t, s = 1) {
+    const flap = Math.sin(t * 14);
+    const ww = Math.max(2, (16 + 5 * flap) * s);
+    const wing = rgb(200, 190, 230), wing2 = rgb(232, 226, 246);
+    fillEllipse(ctx, cx - ww - 3 * s, cy - 14 * s, ww, 22 * s, wing);
+    fillEllipse(ctx, cx + 3 * s, cy - 14 * s, ww, 22 * s, wing);
+    fillEllipse(ctx, cx - ww - 1 * s, cy - 9 * s, Math.max(2, ww / 2), 11 * s, wing2);
+    fillEllipse(ctx, cx + 5 * s, cy - 9 * s, Math.max(2, ww / 2), 11 * s, wing2);
+    fillEllipse(ctx, cx - 5 * s, cy - 8 * s, 10 * s, 22 * s, rgb(150, 130, 170));
+    fillCircle(ctx, cx, cy - 12 * s, 6 * s, rgb(175, 155, 195));
+    for (const ex of [-2, 2]) {
+      fillCircle(ctx, cx + ex * s, cy - 12 * s, Math.max(1, 1.3 * s), rgb(20, 10, 30));
+    }
+    const w = Math.max(1, s);
+    drawLine(ctx, cx - 2 * s, cy - 17 * s, cx - 7 * s, cy - 26 * s, wing, w);
+    drawLine(ctx, cx + 2 * s, cy - 17 * s, cx + 7 * s, cy - 26 * s, wing, w);
+  }
+
+  function drawGloomcap(ctx, cx, cy, t, s = 1) {
+    const bob = Math.sin(t * 3) * 1.5 * s;
+    ctx.fillStyle = rgb(230, 220, 190);
+    ctx.fillRect(cx - 7 * s, cy - 2 * s + bob, 14 * s, 16 * s);
+    fillEllipse(ctx, cx - 17 * s, cy - 20 * s + bob, 34 * s, 24 * s, rgb(110, 60, 140));
+    for (const [sx, sy, sr] of [[-8, -12, 3], [6, -14, 2.5], [10, -8, 2]]) {
+      fillCircle(ctx, cx + sx * s, cy + sy * s + bob, Math.max(1, sr * s), rgb(220, 190, 240));
+    }
+    for (const ex of [-3, 3]) {
+      fillCircle(ctx, cx + ex * s, cy + 5 * s + bob, Math.max(1, 1.4 * s), rgb(40, 30, 50));
+    }
+    drawLine(ctx, cx - 2 * s, cy + 10 * s + bob, cx + 2 * s, cy + 10 * s + bob, rgb(40, 30, 50), Math.max(1, s * 0.8));
+  }
+
+  function drawWisp(ctx, cx, cy, t, s = 1) {
+    const f = Math.sin(t * 9);
+    const body = rgb(70, 110, 190);
+    fillEllipse(ctx, cx - 11 * s, cy - 16 * s, 22 * s, 32 * s, body);
+    fillPoly(ctx, [[cx - 8 * s, cy - 10 * s], [cx + 8 * s, cy - 10 * s], [cx + f * 3 * s, cy - (26 + 4 * f) * s]], body);
+    fillEllipse(ctx, cx - 7 * s, cy - 10 * s, 14 * s, 22 * s, rgb(150, 200, 255));
+    fillEllipse(ctx, cx - 3 * s, cy - 4 * s, 6 * s, 12 * s, rgb(225, 245, 255));
+    for (const ex of [-3, 3]) {
+      fillCircle(ctx, cx + ex * s, cy - 2 * s, Math.max(1, 1.4 * s), rgb(20, 30, 70));
+    }
+    const w = Math.max(1, s);
+    for (const dx of [-6, 0, 6]) {
+      drawLine(ctx, cx + dx * s, cy + 14 * s, cx + (dx + f * 3) * s, cy + 22 * s, rgb(110, 160, 230), w);
+    }
+  }
+
+  function drawHush(ctx, cx, cy, t, s = 1) {
+    const P = (dx, dy) => [cx + dx * s, cy + dy * s];
+    const body = rgb(46, 74, 86), brass = BELL;
+    strokeCircle(ctx, ...P(0, -40), Math.max(2, 6 * s), brass, Math.max(1, 2 * s));
+    fillEllipse(ctx, ...P(-22, -36), 44 * s, 44 * s, body);
+    fillPoly(ctx, [P(-21, -14), P(21, -14), P(32, 16), P(-32, 16)], body);
+    fillEllipse(ctx, ...P(-33, 10), 66 * s, 13 * s, brass);
+    fillCircle(ctx, ...P(Math.sin(t * 2) * 7, 24), Math.max(2, 7 * s), brass);
+    for (const ex of [-12, 4]) {
+      fillEllipse(ctx, ...P(ex, -18), 8 * s, 11 * s, rgb(170, 255, 235));
+    }
+    const dark = rgb(20, 30, 40);
+    const lw = Math.max(1, s);
+    drawLine(ctx, ...P(-8, -2), ...P(8, -2), dark, Math.max(1, 2 * s));
+    drawLine(ctx, ...P(-4, -34), ...P(2, -24), dark, lw);
+    drawLine(ctx, ...P(2, -24), ...P(-2, -16), dark, lw);
+  }
+
+  function drawBell(ctx, cx, cy, s = 1.0, rCol = 200, gCol = 160, bCol = 60) {
+    const P = (dx, dy) => [cx + dx * s, cy + dy * s];
+    const col = rgb(rCol, gCol, bCol);
+    const dark = rgb(Math.max(0, rCol - 40), Math.max(0, gCol - 40), Math.max(0, bCol - 40));
+    strokeCircle(ctx, ...P(0, -34), Math.max(2, 5 * s), col, Math.max(1, 2 * s));
+    fillEllipse(ctx, ...P(-20, -30), 40 * s, 40 * s, col);
+    fillPoly(ctx, [P(-19, -10), P(19, -10), P(30, 16), P(-30, 16)], col);
+    fillEllipse(ctx, ...P(-31, 12), 62 * s, 12 * s, dark);
+    fillCircle(ctx, ...P(0, 24), Math.max(2, 6 * s), dark);
+  }
+
+  function drawMossback(ctx, bx, by, t) {
+    fillEllipse(ctx, bx - 28, by - 5, 56, 10, BLACK);
+    fillEllipse(ctx, bx - 24, by - 32, 44, 30, rgb(80, 120, 70));
+    for (const [dx, dy] of [[-12, -22], [0, -26], [10, -20], [-4, -14]]) {
+      fillCircle(ctx, bx + dx, by + dy, 4, rgb(120, 170, 90));
+    }
+    fillCircle(ctx, bx - 2, by - 34, 4, BELL);
+    const nod = Math.sin(t * 2) * 1.5;
+    fillEllipse(ctx, bx + 10, by - 20 + nod, 22, 18, rgb(120, 160, 100));
+    fillCircle(ctx, bx + 24, by - 14 + nod, 2, rgb(20, 30, 20));
+    ctx.fillStyle = rgb(100, 140, 90);
+    ctx.fillRect(bx - 16, by - 6, 7, 6);
+    ctx.fillRect(bx + 4, by - 6, 7, 6);
+  }
+
+  function drawBramble(ctx, bx, by, t) {
+    const sway = Math.sin(t * 1.5) * 2;
+    fillEllipse(ctx, bx - 14, by - 5, 28, 10, BLACK);
+    fillPoly(ctx, [[bx - 9, by], [bx + 9, by], [bx + 5 + sway, by - 40], [bx - 5 + sway, by - 40]], rgb(60, 130, 70));
+    fillPoly(ctx, [[bx, by - 18], [bx + 20, by - 30], [bx + 6, by - 12]], rgb(80, 160, 90));
+    fillPoly(ctx, [[bx, by - 24], [bx - 20, by - 36], [bx - 6, by - 16]], rgb(80, 160, 90));
+    for (let i = 0; i < 6; i++) {
+      const ang = i * Math.PI / 3 + t * 0.5;
+      fillCircle(ctx, bx + sway + Math.cos(ang) * 9, by - 50 + Math.sin(ang) * 9, 6, rgb(240, 120, 160));
+    }
+    fillCircle(ctx, bx + sway, by - 50, 6, rgb(255, 220, 120));
+    ctx.fillStyle = rgb(40, 30, 40);
+    ctx.fillRect(bx + sway - 3, by - 52, 2, 3);
+    ctx.fillRect(bx + sway + 1, by - 52, 2, 3);
+  }
+
+  function drawQuillby(ctx, bx, by, t) {
+    fillEllipse(ctx, bx - 16, by - 5, 32, 10, BLACK);
+    fillEllipse(ctx, bx - 14, by - 32, 28, 30, rgb(50, 50, 90));
+    fillEllipse(ctx, bx - 8, by - 24, 16, 18, rgb(90, 90, 150));
+    fillCircle(ctx, bx, by - 36, 11, rgb(50, 50, 90));
+    fillPoly(ctx, [[bx + 6, by - 37], [bx + 17, by - 34], [bx + 6, by - 31]], rgb(240, 190, 70));
+    fillCircle(ctx, bx + 2, by - 38, 3, WHITE);
+    fillCircle(ctx, bx + 3, by - 38, 1, BLACK);
+    const tip = [bx - 11, by - 62 + Math.sin(t * 3) * 2];
+    drawLine(ctx, bx - 4, by - 46, tip[0], tip[1], rgb(230, 230, 240), 3);
+    fillPoly(ctx, [tip, [tip[0] - 4, tip[1] + 10], [tip[0] + 4, tip[1] + 8]], rgb(230, 230, 240));
+    ctx.fillStyle = rgb(240, 190, 70);
+    ctx.fillRect(bx - 7, by - 4, 3, 4);
+    ctx.fillRect(bx + 4, by - 4, 3, 4);
+  }
+
+  function drawCinder(ctx, bx, by, t) {
+    fillEllipse(ctx, bx - 18, by - 5, 36, 10, BLACK);
+    ctx.fillStyle = rgb(70, 60, 66);
+    ctx.fillRect(bx - 12, by - 32, 24, 28);
+    ctx.fillStyle = rgb(120, 90, 60);
+    ctx.fillRect(bx - 9, by - 24, 18, 20);
+    fillCircle(ctx, bx, by - 38, 10, rgb(90, 80, 80));
+    const glow = 200 + Math.sin(t * 6) * 40;
+    ctx.fillStyle = rgb(255, glow / 2 + 60, 60);
+    for (const ex of [-4, 3]) ctx.fillRect(bx + ex, by - 40, 3, 4);
+    drawLine(ctx, bx + 12, by - 30, bx + 22, by - 12, rgb(110, 80, 50), 3);
+    ctx.fillStyle = rgb(140, 140, 150);
+    ctx.fillRect(bx + 16, by - 38, 14, 8);
+    if (Math.floor(t * 5) % 3 === 0) fillCircle(ctx, bx + 28, by - 40, 2, rgb(255, 180, 60));
+  }
+
+  function drawPip(ctx, x, y, t) {
+    const flap = Math.sin(t * 20);
+    fillEllipse(ctx, x - 10, y - 8 - flap * 2, 9, 6, rgb(190, 220, 255));
+    fillEllipse(ctx, x + 1, y - 8 - flap * 2, 9, 6, rgb(190, 220, 255));
+    fillCircle(ctx, x, y, 5, rgb(255, 240, 140));
+    fillCircle(ctx, x, y, 2, rgb(255, 255, 220));
+    fillCircle(ctx, x, y + 6, 3, rgb(255, 240, 140));
+  }
+
+  function drawPage(ctx, x, y, t) {
+    const pulse = 14 + Math.sin(t * 4) * 3;
+    strokeCircle(ctx, x, y, pulse, rgb(90, 90, 40), 2);
+    ctx.fillStyle = rgb(240, 230, 200);
+    ctx.fillRect(x - 7, y - 9, 14, 18);
+    for (let i = 0; i < 3; i++) {
+      drawLine(ctx, x - 4, y - 4 + i * 5, x + 4, y - 4 + i * 5, rgb(120, 100, 80), 1);
+    }
+  }
+
+  function drawSavepoint(ctx, x, y, t) {
+    const pulse = 1 + 0.15 * Math.sin(t * 3);
+    const r = 11 * pulse;
+    const pts = [];
+    for (let i = 0; i < 8; i++) {
+      const ang = Math.PI / 4 * i - Math.PI / 2;
+      const rad = i % 2 === 0 ? r : r * 0.38;
+      pts.push([x + Math.cos(ang) * rad, y + Math.sin(ang) * rad]);
+    }
+    strokeCircle(ctx, x, y, r + 4, rgb(110, 95, 30), 2);
+    fillPoly(ctx, pts, YELLOW);
+    fillCircle(ctx, x, y, 3, WHITE);
+  }
+
+  function drawChest(ctx, x, y, opened) {
+    ctx.fillStyle = rgb(110, 70, 40);
+    ctx.fillRect(x - 12, y - 6, 24, 15);
+    ctx.strokeStyle = BELL;
+    ctx.lineWidth = 2;
+    ctx.strokeRect(x - 12, y - 6, 24, 15);
+    if (opened) {
+      fillPoly(ctx, [[x - 12, y - 6], [x + 12, y - 6], [x + 10, y - 16], [x - 10, y - 16]], rgb(90, 55, 30));
+    } else {
+      ctx.fillStyle = rgb(90, 55, 30);
+      ctx.fillRect(x - 13, y - 12, 26, 7);
+      ctx.fillStyle = BELL;
+      ctx.fillRect(x - 3, y - 8, 6, 6);
+    }
+  }
+
+  function drawSign(ctx, x, y) {
+    ctx.fillStyle = rgb(90, 60, 40);
+    ctx.fillRect(x - 2, y - 2, 4, 11);
+    ctx.fillStyle = rgb(170, 130, 80);
+    ctx.fillRect(x - 11, y - 15, 22, 13);
+    drawLine(ctx, x - 7, y - 11, x + 7, y - 11, rgb(90, 60, 40), 1);
+    drawLine(ctx, x - 7, y - 7, x + 3, y - 7, rgb(90, 60, 40), 1);
+  }
+
+  function drawRootling(ctx, cx, cy, t, s = 1) {
+    const sway = Math.sin(t * 3) * 3;
+    fillEllipse(ctx, cx - 11 * s, cy - 10 * s, 22 * s, 26 * s, rgb(110, 70, 40));
+    for (const dx of [-8, 0, 8]) {
+      drawLine(ctx, cx + dx * s, cy + 14 * s, cx + (dx + sway * 0.5) * s, cy + 22 * s, rgb(90, 55, 30), Math.max(1, 2 * s));
+    }
+    const stem = [cx + sway * s * 0.5, cy - 16 * s];
+    drawLine(ctx, cx, cy - 8 * s, stem[0], stem[1], rgb(70, 140, 60), Math.max(1, 2 * s));
+    fillEllipse(ctx, stem[0] - 18 * s, stem[1] - 8 * s, 18 * s, 10 * s, rgb(80, 190, 90));
+    fillEllipse(ctx, stem[0], stem[1] - 8 * s, 18 * s, 10 * s, rgb(80, 190, 90));
+    for (const ex of [-4, 4]) {
+      fillCircle(ctx, cx + ex * s, cy - 1 * s, Math.max(2, 3 * s), rgb(255, 240, 200));
+      fillCircle(ctx, cx + ex * s, cy - 1 * s, Math.max(1, 1.2 * s), rgb(30, 20, 10));
+    }
+  }
+
+  function drawInkblot(ctx, cx, cy, t, s = 1) {
+    const wob = Math.sin(t * 4);
+    const ink = rgb(24, 22, 52);
+    fillEllipse(ctx, cx - (16 + wob) * s, cy - 12 * s, (32 + wob * 2) * s, 26 * s, ink);
+    fillEllipse(ctx, cx - 10 * s, cy - 20 * s, 20 * s, 16 * s, ink);
+    fillEllipse(ctx, cx - 9 * s, cy - 12 * s, 8 * s, 5 * s, rgb(90, 90, 170));
+    for (const dx of [-10, 0, 9]) {
+      const drip = (6 + (Math.sin(t * 3 + dx) + 1) * 4) * s;
+      drawLine(ctx, cx + dx * s, cy + 10 * s, cx + dx * s, cy + 10 * s + drip, ink, Math.max(1, 3 * s));
+    }
+    for (const ex of [-5, 5]) {
+      fillCircle(ctx, cx + ex * s, cy - 3 * s, Math.max(2, 4 * s), WHITE);
+      fillCircle(ctx, cx + (ex + wob) * s * 0.5, cy - 3 * s, Math.max(1, 1.8 * s), BLACK);
+    }
+  }
+
+  function drawCinderling(ctx, cx, cy, t, s = 1) {
+    const f = Math.sin(t * 11);
+    fillPoly(ctx, [[cx - 9 * s, cy - 8 * s], [cx + 9 * s, cy - 8 * s], [cx + f * 4 * s, cy - (28 + 4 * f) * s]], rgb(255, 120, 40));
+    fillEllipse(ctx, cx - 13 * s, cy - 12 * s, 26 * s, 30 * s, rgb(210, 70, 30));
+    fillEllipse(ctx, cx - 8 * s, cy - 5 * s, 16 * s, 20 * s, rgb(255, 170, 60));
+    fillPoly(ctx, [[cx - 12 * s, cy - 8 * s], [cx - 8 * s, cy - 18 * s], [cx - 5 * s, cy - 9 * s]], rgb(90, 30, 20));
+    fillPoly(ctx, [[cx + 12 * s, cy - 8 * s], [cx + 8 * s, cy - 18 * s], [cx + 5 * s, cy - 9 * s]], rgb(90, 30, 20));
+    for (const ex of [-4, 4]) {
+      fillCircle(ctx, cx + ex * s, cy + 1 * s, Math.max(1, 2 * s), rgb(255, 255, 160));
+    }
+    drawLine(ctx, cx - 3 * s, cy + 8 * s, cx + 3 * s, cy + 8 * s, rgb(90, 30, 20), Math.max(1, s));
+  }
+
+  function drawClinker(ctx, cx, cy, t, s = 1) {
+    const body = rgb(58, 54, 60);
+    const glow = rgb(255, 120 + Math.sin(t * 5) * 30, 40);
+    ctx.fillStyle = body;
+    ctx.fillRect(cx - 18 * s, cy - 14 * s, 36 * s, 34 * s);
+    ctx.fillRect(cx - 12 * s, cy - 30 * s, 24 * s, 18 * s);
+    ctx.fillRect(cx - 30 * s, cy - 12 * s, 10 * s, 26 * s);
+    ctx.fillRect(cx + 20 * s, cy - 12 * s, 10 * s, 26 * s);
+    const lw = Math.max(1, 2 * s);
+    drawLine(ctx, cx - 18 * s, cy + 2 * s, cx + 18 * s, cy + 2 * s, glow, lw);
+    drawLine(ctx, cx, cy - 14 * s, cx, cy + 20 * s, glow, lw);
+    ctx.fillStyle = glow;
+    ctx.fillRect(cx - 8 * s, cy - 24 * s, 5 * s, 5 * s);
+    ctx.fillRect(cx + 3 * s, cy - 24 * s, 5 * s, 5 * s);
+    ctx.fillStyle = rgb(90, 90, 100);
+    ctx.fillRect(cx + 24 * s, cy + 10 * s, 16 * s, 8 * s);
+  }
+
+  function drawHeartroot(ctx, cx, cy, t, s = 1) {
+    const beat = 1 + 0.06 * Math.sin(t * 4);
+    const S = s * beat;
+    const core = rgb(200, 40, 85), glow = rgb(255, 150, 190);
+    for (let i = 0; i < 7; i++) {
+      const x = cx - 36 * S + i * 12 * S;
+      const sway = Math.sin(t * 2 + i) * 6 * S;
+      drawLine(ctx, x, cy + 20 * S, x + sway, cy + 52 * S, rgb(60, 120, 60), Math.max(2, 3 * S));
+    }
+    fillCircle(ctx, cx - 15 * S, cy - 14 * S, 18 * S, core);
+    fillCircle(ctx, cx + 15 * S, cy - 14 * S, 18 * S, core);
+    fillPoly(ctx, [[cx - 32 * S, cy - 8 * S], [cx + 32 * S, cy - 8 * S], [cx, cy + 36 * S]], core);
+    fillCircle(ctx, cx, cy - 4 * S, 10 * S, glow);
+    fillCircle(ctx, cx, cy - 4 * S, 4 * S, WHITE);
+    for (const dx of [-18, 18]) {
+      drawLine(ctx, cx + dx * S, cy - 28 * S, cx + dx * S * 0.4, cy + 10 * S, rgb(60, 140, 70), Math.max(1, 2 * S));
+    }
+    for (const ex of [-9, 9]) {
+      fillEllipse(ctx, cx + ex * S - 3 * S, cy + 8 * S, 6 * S, 8 * S, rgb(40, 10, 30));
+    }
+  }
+
+  function drawRootsDecor(ctx, t, color, count = 12) {
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 3;
+    for (let i = 0; i < count; i++) {
+      const x = (i * W / count) + 20;
+      ctx.beginPath();
+      for (let k = 0; k < 12; k++) {
+        const px = x + Math.sin(t * 0.8 + i + k * 0.5) * 14 + k * ((i % 3) - 1) * 3;
+        const py = H - k * 26;
+        if (k === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      }
+      ctx.stroke();
+    }
+  }
+
+  const SHOPS = {
+    mossback: {
+      title: "MOSSBACK'S WARES",
+      stock: ["Glow Berry", "Honey Biscuit", "Moonmilk", "Brass Rod", "Moth Cloak", "Lantern Staff"],
+      art: drawMossback,
+      music: "shop"
+    },
+    bramble: {
+      title: "BRAMBLE'S GARDEN",
+      stock: ["Glow Berry", "Spore Tea", "Ember Bun", "Heartroot Sap", "Moonmilk"],
+      art: drawBramble,
+      music: "roots"
+    },
+    cinder: {
+      title: "CINDER'S FORGE",
+      stock: ["Ink Quill", "Cinder Blade", "Ash Mantle", "Honey Biscuit"],
+      art: drawCinder,
+      music: "forge"
+    }
+  };
+
+  // =========================================================================
+  // MAP & ROOM DATA (ALL 13 ROOMS)
+  // =========================================================================
+  function makeMap(blocks = [], doors = {}) {
+    const grid = Array.from({ length: ROWS }, () => Array(COLS).fill("."));
+    for (let x = 0; x < COLS; x++) grid[0][x] = grid[ROWS - 1][x] = "#";
+    for (let y = 0; y < ROWS; y++) grid[y][0] = grid[y][COLS - 1] = "#";
+    for (const [bx, by, bw, bh] of blocks) {
+      for (let y = by; y < by + bh; y++) {
+        for (let x = bx; x < bx + bw; x++) {
+          grid[y][x] = "#";
+        }
+      }
+    }
+    for (const [coord, ch] of Object.entries(doors)) {
+      const [dx, dy] = coord.split(",").map(Number);
+      grid[dy][dx] = ch;
+    }
+    return grid.map(r => r.join(""));
+  }
+
+  const ROOM_DATA = {
+    landing: {
+      name: "The Landing", chapter: "Chapter 1 - The Fall",
+      floor: [[40, 34, 70], [44, 38, 76]], wall: [20, 16, 40],
+      spawn: [9, 6], music: "cave", fx: "dust",
+      lights: [[9, 6, false]],
+      map: makeMap([[5, 3, 2, 2], [14, 9, 3, 2]], { "19,7": "1" }),
+      doors: { "1": ["corridor", [1, 7]] },
+    },
+    corridor: {
+      name: "Mushroom Corridor", chapter: null,
+      floor: [[30, 44, 62], [34, 48, 68]], wall: [14, 22, 36],
+      spawn: [1, 7], music: "cave", fx: "spores", lights: [],
+      map: makeMap([[0, 0, 20, 5], [0, 10, 20, 5], [4, 6, 2, 1], [14, 6, 2, 1], [4, 8, 2, 1], [14, 8, 2, 1]], { "0,7": "1", "19,7": "2" }),
+      doors: { "1": ["landing", [18, 7]], "2": ["hall", [1, 7]] },
+    },
+    hall: {
+      name: "Echo Hall", chapter: null,
+      floor: [[56, 38, 62], [62, 42, 68]], wall: [28, 16, 32],
+      spawn: [1, 7], music: "cave", fx: "dust", lights: [],
+      map: makeMap([[6, 4, 8, 1], [6, 5, 1, 3], [13, 5, 1, 3], [6, 8, 3, 1], [11, 8, 3, 1]], { "0,7": "1", "19,7": "2" }),
+      doors: { "1": ["corridor", [18, 7]], "2": ["market", [1, 7]] },
+    },
+    market: {
+      name: "Mossback's Market", chapter: "Chapter 2 - Fair Prices",
+      floor: [[70, 52, 40], [76, 58, 44]], wall: [36, 26, 20],
+      spawn: [1, 7], music: "shop", fx: null,
+      lights: [[4, 3, true], [15, 3, true]],
+      map: makeMap([[3, 3, 1, 1], [16, 3, 1, 1]], { "0,7": "1", "19,7": "2" }),
+      doors: { "1": ["hall", [18, 7]], "2": ["stair", [1, 7]] },
+    },
+    stair: {
+      name: "The Long Stair", chapter: "Chapter 3 - The Descent",
+      floor: [[34, 38, 70], [38, 42, 76]], wall: [16, 18, 38],
+      spawn: [1, 7], music: "cave", fx: "dust", lights: [],
+      map: makeMap([[0, 0, 20, 5], [0, 10, 20, 5], [6, 5, 1, 2], [10, 8, 1, 2], [14, 5, 1, 2]], { "0,7": "1", "19,7": "2" }),
+      doors: { "1": ["market", [18, 7]], "2": ["bellroom", [1, 7]] },
+    },
+    bellroom: {
+      name: "The Hollow Bell", chapter: "Final Chapter of Act 1 - The Tolling",
+      floor: [[24, 36, 44], [28, 42, 52]], wall: [10, 18, 24],
+      spawn: [1, 7], music: "cave", fx: "dust",
+      lights: [[9, 3, false]],
+      map: makeMap([[3, 3, 1, 1], [16, 3, 1, 1], [3, 11, 1, 1], [16, 11, 1, 1]], { "0,7": "1", "19,7": "2" }),
+      doors: {
+        "1": ["stair", [18, 7]],
+        "2": ["roots_gate", [1, 7], "act2", "The way down is sealed. Something below still sleeps."]
+      },
+    },
+    roots_gate: {
+      name: "Underroots Gate", chapter: "Act 2 - The Underroots",
+      floor: [[28, 52, 40], [32, 58, 46]], wall: [14, 30, 22],
+      spawn: [1, 7], music: "roots", fx: "spores",
+      lights: [[9, 7, false]],
+      map: makeMap([[4, 3, 2, 2], [14, 3, 2, 2], [4, 10, 2, 2], [14, 10, 2, 2]], { "0,7": "1", "19,7": "2" }),
+      doors: { "1": ["bellroom", [18, 7]], "2": ["glowfen", [1, 7]] },
+    },
+    glowfen: {
+      name: "Glowfen", chapter: "Chapter 5 - Glowfen",
+      floor: [[24, 46, 58], [28, 52, 66]], wall: [10, 26, 36],
+      spawn: [1, 7], music: "roots", fx: "spores",
+      lights: [[6, 10, false], [12, 4, false], [17, 9, false]],
+      map: makeMap([[4, 3, 1, 5], [9, 6, 1, 6], [14, 3, 1, 5]], { "0,7": "1", "19,7": "2", "2,0": "3" }),
+      doors: { "1": ["roots_gate", [18, 7]], "2": ["archive", [1, 7]], "3": ["nook", [1, 7]] },
+    },
+    nook: {
+      name: "Pip's Nook", chapter: null,
+      floor: [[60, 60, 40], [66, 66, 46]], wall: [30, 30, 18],
+      spawn: [1, 7], music: "shop", fx: "spores",
+      lights: [[10, 7, true]],
+      map: makeMap([[0, 0, 20, 3], [0, 12, 20, 3]], { "0,7": "1" }),
+      doors: { "1": ["glowfen", [2, 2]] },
+    },
+    archive: {
+      name: "The Quiet Archive", chapter: "Chapter 6 - The Quiet Archive",
+      floor: [[46, 40, 60], [52, 46, 68]], wall: [26, 22, 40],
+      spawn: [1, 7], music: "quiet", fx: "dust",
+      lights: [[2, 2, true], [17, 2, true], [2, 12, true]],
+      map: makeMap([[3, 2, 5, 1], [11, 2, 5, 1], [3, 5, 5, 1], [11, 5, 5, 1], [3, 9, 5, 1], [11, 9, 5, 1]], { "0,7": "1", "19,7": "2" }),
+      doors: { "1": ["glowfen", [18, 7]], "2": ["foundry", [1, 7]] },
+    },
+    foundry: {
+      name: "Cinder Foundry", chapter: "Chapter 7 - The Cinder Foundry",
+      floor: [[62, 34, 26], [70, 38, 28]], wall: [34, 16, 12],
+      spawn: [1, 7], music: "forge", fx: "embers",
+      lights: [[4, 3, false], [15, 3, false], [9, 11, false]],
+      map: makeMap([[4, 4, 2, 2], [14, 4, 2, 2], [8, 9, 4, 1]], { "0,7": "1", "19,7": "2" }),
+      doors: {
+        "1": ["archive", [18, 7]],
+        "2": ["choirhall", [1, 7], "clinker_done", "The gate is shut tight. The golem guarding it must be dealt with first."]
+      },
+    },
+    choirhall: {
+      name: "The Choir Hall", chapter: "Chapter 8 - The Choir",
+      floor: [[40, 36, 66], [46, 42, 74]], wall: [20, 18, 38],
+      spawn: [1, 7], music: "quiet", fx: "dust",
+      lights: [[10, 7, false]],
+      map: makeMap([[3, 3, 1, 1], [3, 11, 1, 1], [8, 3, 1, 1], [8, 11, 1, 1], [13, 3, 1, 1], [13, 11, 1, 1]], { "0,7": "1", "19,7": "2" }),
+      doors: {
+        "1": ["foundry", [18, 7]],
+        "2": ["heartroot", [1, 7], "locket_given", "The door hums with a sealed echo. Quillby the archivist may know how to open it."]
+      },
+    },
+    heartroot: {
+      name: "The Heartroot", chapter: "Final Chapter - The Heartroot",
+      floor: [[40, 20, 40], [46, 24, 46]], wall: [20, 10, 24],
+      spawn: [1, 7], music: "roots", fx: "petals",
+      lights: [[10, 6, false]],
+      map: makeMap([[4, 3, 1, 1], [15, 3, 1, 1], [4, 11, 1, 1], [15, 11, 1, 1]], { "0,7": "1" }),
+      doors: { "1": ["choirhall", [18, 7]] },
+    },
+  };
+
+  const FX = {
+    spores: [rgb(170, 255, 190), -14, 12, 2],
+    embers: [rgb(255, 150, 60), -45, 10, 2],
+    dust:   [rgb(190, 190, 230), 8, 6, 1],
+    petals: [rgb(255, 170, 200), 14, 20, 2],
+  };
+
+  class Room {
+    constructor(key) {
+      const data = ROOM_DATA[key];
+      this.key = key;
+      this.name = data.name;
+      this.chapter = data.chapter;
+      this.spawn = data.spawn;
+      this.music = data.music;
+      this.lights = data.lights;
+      this.fx = data.fx || null;
+      const rows = data.map;
+      this.solids = [];
+      this.doors = {};
+      rows.forEach((row, ty) => {
+        for (let tx = 0; tx < row.length; tx++) {
+          const ch = row[tx];
+          if (ch === "#") {
+            this.solids.push({ x: tx * TILE, y: ty * TILE, w: TILE, h: TILE });
+          } else if (ch >= "0" && ch <= "9") {
+            this.doors[`${tx},${ty}`] = data.doors[ch];
+          }
+        }
+      });
+      this.surface = this._render(data, rows);
+    }
+
+    _render(data, rows) {
+      const off = document.createElement("canvas");
+      off.width = W;
+      off.height = H;
+      const c = off.getContext("2d");
+      const floorA = rgb(...data.floor[0]);
+      const floorB = rgb(...data.floor[1]);
+      const wall = rgb(...data.wall);
+      const brick = rgb(...data.wall.map(v => Math.min(255, v + 14)));
+      rows.forEach((row, ty) => {
+        for (let tx = 0; tx < row.length; tx++) {
+          const ch = row[tx];
+          const rx = tx * TILE, ry = ty * TILE;
+          if (ch === "#") {
+            c.fillStyle = wall;
+            c.fillRect(rx, ry, TILE, TILE);
+            drawLine(c, rx, ry + TILE / 2, rx + TILE, ry + TILE / 2, brick, 2);
+            const offset = (ty % 2) ? 8 : 22;
+            drawLine(c, rx + offset, ry, rx + offset, ry + TILE / 2, brick, 2);
+          } else if (ch >= "0" && ch <= "9") {
+            c.fillStyle = BLACK;
+            c.fillRect(rx, ry, TILE, TILE);
+            c.strokeStyle = BELL;
+            c.lineWidth = 2;
+            c.strokeRect(rx + 1, ry + 1, TILE - 2, TILE - 2);
+          } else {
+            c.fillStyle = (tx + ty) % 2 === 0 ? floorA : floorB;
+            c.fillRect(rx, ry, TILE, TILE);
+          }
+        }
+      });
+      return off;
+    }
+  }
+
+  // =========================================================================
+  // PLAYER
+  // =========================================================================
+  class Player {
+    constructor(tile) {
+      this.HB_W = 20;
+      this.HB_H = 14;
+      this.SPEED = 130;
+      this.place(tile);
+      this.facing = "down";
+      this.walking = false;
+      this.anim = 0.0;
+    }
+
+    place(tile) {
+      this.x = tile[0] * TILE + TILE / 2;
+      this.y = tile[1] * TILE + TILE / 2;
+    }
+
+    hitbox() {
+      return {
+        x: Math.round(this.x) - this.HB_W / 2,
+        y: Math.round(this.y) - this.HB_H / 2,
+        w: this.HB_W,
+        h: this.HB_H
+      };
+    }
+
+    centerTile() {
+      return [Math.floor(this.x / TILE), Math.floor(this.y / TILE)];
+    }
+
+    update(dt, solids) {
+      let dx = (isHeld(RIGHT_CODES) ? 1 : 0) - (isHeld(LEFT_CODES) ? 1 : 0);
+      let dy = (isHeld(DOWN_CODES) ? 1 : 0) - (isHeld(UP_CODES) ? 1 : 0);
+      this.walking = !!(dx || dy);
+      if (!this.walking) {
+        this.anim = 0.0;
+        return;
+      }
+      if (dx && dy) {
+        dx *= 0.7071;
+        dy *= 0.7071;
+      }
+      if (dy) this.facing = dy > 0 ? "down" : "up";
+      if (dx && !dy) this.facing = dx > 0 ? "right" : "left";
+      this.anim += dt;
+      this._moveAxis(dx * this.SPEED * dt, 0, solids);
+      this._moveAxis(0, dy * this.SPEED * dt, solids);
+    }
+
+    _moveAxis(mx, my, solids) {
+      this.x += mx;
+      this.y += my;
+      const box = this.hitbox();
+      for (const s of solids) {
+        if (rectOverlap(box, s)) {
+          if (mx > 0) box.x = s.x - box.w;
+          else if (mx < 0) box.x = s.x + s.w;
+          if (my > 0) box.y = s.y - box.h;
+          else if (my < 0) box.y = s.y + s.h;
+          this.x = box.x + box.w / 2;
+          this.y = box.y + box.h / 2;
+        }
+      }
+    }
+
+    draw(ctx) {
+      const bx = Math.round(this.x);
+      const by = Math.round(this.y + this.HB_H / 2);
+      fillEllipse(ctx, bx - 11, by - 5, 22, 9, BLACK);
+      const frame = this.walking ? Math.floor(this.anim * 8) % 2 : 0;
+      ctx.fillStyle = rgb(60, 50, 80);
+      ctx.fillRect(bx - 7, by - 7 - (frame ? 2 : 0), 5, 7);
+      ctx.fillRect(bx + 2, by - 7 - (frame ? 0 : 2), 5, 7);
+      ctx.fillStyle = rgb(90, 140, 200);
+      ctx.fillRect(bx - 9, by - 21, 18, 15);
+      ctx.fillStyle = rgb(210, 80, 80);
+      ctx.fillRect(bx - 9, by - 22, 18, 4);
+      fillCircle(ctx, bx, by - 28, 9, rgb(245, 205, 170));
+      const hair = rgb(70, 50, 60);
+      if (this.facing === "up") {
+        fillCircle(ctx, bx, by - 28, 9, hair);
+      } else {
+        ctx.fillStyle = hair;
+        ctx.fillRect(bx - 9, by - 37, 18, 7);
+      }
+      const eye = rgb(30, 20, 40);
+      ctx.fillStyle = eye;
+      if (this.facing === "down") {
+        ctx.fillRect(bx - 5, by - 28, 2, 4);
+        ctx.fillRect(bx + 3, by - 28, 2, 4);
+        fillCircle(ctx, bx, by - 15, 3, BELL);
+      } else if (this.facing === "left") {
+        ctx.fillRect(bx - 7, by - 28, 2, 4);
+      } else if (this.facing === "right") {
+        ctx.fillRect(bx + 5, by - 28, 2, 4);
+      }
+    }
+  }
+
+  // =========================================================================
+  // DIALOGUE BOX
+  // =========================================================================
+  class DialogueBox {
+    constructor(ctx, speaker, pages, voice = "blip", onClose = null) {
+      this.speaker = speaker;
+      this.voice = voice;
+      this.onClose = onClose;
+      this.TEXT_W = W - 60 - 40;
+      this.pages = [];
+      for (const p of pages) {
+        this.pages.push(...paginateText(ctx, p, 20, this.TEXT_W, 3));
+      }
+      this.i = 0;
+      this.writer = new Typewriter(this.pages[0], 40, voice);
+      this.t = 0.0;
+    }
+
+    advance() {
+      if (!this.writer.done) {
+        this.writer.finish();
+        return false;
+      }
+      this.i++;
+      if (this.i >= this.pages.length) return true;
+      this.writer = new Typewriter(this.pages[this.i], 40, this.voice);
+      return false;
+    }
+
+    update(dt) {
+      this.t += dt;
+      this.writer.update(dt);
+    }
+
+    draw(ctx, top = false) {
+      const rect = { x: 30, y: top ? 20 : 340, w: W - 60, h: 120 };
+      drawPanel(ctx, rect);
+      let y = rect.y + 14;
+      if (this.speaker) {
+        setFont(ctx, 16);
+        ctx.fillStyle = YELLOW;
+        ctx.fillText(this.speaker, rect.x + 18, rect.y + 10);
+        y = rect.y + 36;
+      }
+      drawTyped(ctx, 20, this.writer.text, this.writer.shown, rect.x + 18, y, 26);
+      if (this.writer.done && Math.floor(this.t * 2) % 2 === 0) {
+        fillPoly(ctx, [
+          [rect.x + rect.w - 34, rect.y + rect.h - 22],
+          [rect.x + rect.w - 20, rect.y + rect.h - 22],
+          [rect.x + rect.w - 27, rect.y + rect.h - 12]
+        ], YELLOW);
+      }
+    }
+  }
+
+  // =========================================================================
+  // PROPS & NPCS
+  // =========================================================================
+  class Prop {
+    constructor(room, tile, size = [26, 14], solid = true) {
+      this.room = room;
+      this.tile = tile;
+      this.solid = solid;
+      this.x = tile[0] * TILE + TILE / 2;
+      this.y = tile[1] * TILE + TILE / 2;
+      this.rect = {
+        x: Math.round(this.x) - size[0] / 2,
+        y: Math.round(this.y) - size[1] / 2,
+        w: size[0],
+        h: size[1]
+      };
+    }
+    active(game) { return true; }
+    interact(ow) {}
+    draw(ctx, t, game) {}
+  }
+
+  const WICK_FIRST = [
+    "Oh! A little one, fallen from the surface. Careful, it is dark down here.",
+    "I am Wick, keeper of the last lantern. I walk these halls so no one else must.",
+    "Some creatures here are frightened, not cruel. There is more than one way to end a quarrel.",
+    "Press C to open your pockets. Walk east through the corridor, and listen as you go.",
+  ];
+  const WICK_AGAIN = [
+    "East is the corridor. Mind the mothlets, they adore a bright lantern.",
+    "Listen before you strike, little one. Every creature is telling you something.",
+  ];
+  const WICK_PROUD = [
+    "I hear the cave humming. You have been kind to its creatures.",
+    "Keep that light steady. The Bell is deep below, past Mossback's market.",
+  ];
+  const WICK_HURT = [
+    "The cave is... quieter than it should be.",
+    "I will not tell you how to walk, little one. I only ask that you listen more.",
+  ];
+  const WICK_DEEP_CLEAN = [
+    "You came this far without leaving a single hurt behind. I did not think it possible.",
+    "The Heartroot waits beyond that door. It is not wicked, little one. It is only full of old anger.",
+    "Whatever you choose, I will be here at the end.",
+  ];
+  const WICK_DEEP_SOME = [
+    "I have watched you walk. Some of the cave's creatures will not sing again.",
+    "Still, the door is open. Listen to the Heartroot as you would have listened to them.",
+  ];
+  const WICK_DEEP_MANY = [
+    "...",
+    "The roots are very loud tonight. I cannot tell whether they are afraid of you.",
+    "Go on. I will keep the lantern lit, whatever you are.",
+  ];
+
+  const PAGE_FLAGS = ["page_a", "page_b", "page_c"];
+
+  class Wick extends Prop {
+    draw(ctx, t) { drawWick(ctx, Math.round(this.x), Math.round(this.y + 7), t); }
+    interact(ow) {
+      const g = ow.game;
+      let lines;
+      if (!g.flags.met_wick) { g.flags.met_wick = true; lines = WICK_FIRST; }
+      else if (g.kills > 0) lines = WICK_HURT;
+      else if (g.spares > 0) lines = WICK_PROUD;
+      else lines = WICK_AGAIN;
+      ow.say("Wick", lines, "blip_low");
+    }
+  }
+
+  class WickDeep extends Prop {
+    draw(ctx, t) { drawWick(ctx, Math.round(this.x), Math.round(this.y + 7), t); }
+    interact(ow) {
+      const k = ow.game.kills;
+      const lines = k === 0 ? WICK_DEEP_CLEAN : (k < 4 ? WICK_DEEP_SOME : WICK_DEEP_MANY);
+      ow.say("Wick", lines, "blip_low");
+    }
+  }
+
+  class Mossback extends Prop {
+    constructor(room, tile) { super(room, tile, [44, 16], true); }
+    draw(ctx, t) { drawMossback(ctx, Math.round(this.x), Math.round(this.y + 7), t); }
+    interact(ow) {
+      const g = ow.game;
+      const lines = g.kills > 0
+        ? ["Hm. You smell like the quiet. ...Still, gold is gold. Take a look!"]
+        : ["Welcome, welcome! Mossback's Market, the only shop in the whole cave.",
+           "Fair prices, fair weights. Gold for goods, goods for gold. Take a look!"];
+      ow.say("Mossback", lines, "blip", () => g.changeState(new ShopState(g, ow, "mossback")));
+    }
+  }
+
+  class Bramble extends Prop {
+    constructor(room, tile) { super(room, tile, [30, 16], true); }
+    draw(ctx, t) { drawBramble(ctx, Math.round(this.x), Math.round(this.y + 7), t); }
+    interact(ow) {
+      const g = ow.game;
+      const lines = g.kills > 0
+        ? ["The seedlings went quiet when you walked in. ...Still, a customer is a customer, dear."]
+        : ["Oh! A visitor with a lantern. Mind the spores, dear; they tickle.",
+           "I am Bramble. I grow what the cave forgot. Have a look at the garden stalls!"];
+      ow.say("Bramble", lines, "blip", () => g.changeState(new ShopState(g, ow, "bramble")));
+    }
+  }
+
+  class Cinder extends Prop {
+    constructor(room, tile) { super(room, tile, [36, 16], true); }
+    draw(ctx, t) { drawCinder(ctx, Math.round(this.x), Math.round(this.y + 7), t); }
+    interact(ow) {
+      const g = ow.game;
+      const lines = g.kills > 0
+        ? ["Heard what happened to the little ones. ...Metal does not judge. Browse."]
+        : ["Hrm? Customer? Mind the sparks.",
+           "Name's Cinder. I hammer what is broken into what is better. Browse the rack."];
+      ow.say("Cinder", lines, "blip_low", () => g.changeState(new ShopState(g, ow, "cinder")));
+    }
+  }
+
+  class Quillby extends Prop {
+    constructor(room, tile) { super(room, tile, [30, 16], true); }
+    draw(ctx, t) { drawQuillby(ctx, Math.round(this.x), Math.round(this.y + 7), t); }
+    interact(ow) {
+      const g = ow.game;
+      const n = PAGE_FLAGS.filter(f => g.flags[f]).length;
+      if (g.flags.locket_given) {
+        ow.say("Quillby", ["Careful down there. The Heartroot remembers everything."]);
+      } else if (n === 3) {
+        if (g.items.length >= INVENTORY_MAX) {
+          AUDIO.sfx("error");
+          ow.say("Quillby", ["Your pockets are full! Make some room, then come back to me."]);
+          return;
+        }
+        g.items.push("Echo Locket");
+        g.flags.locket_given = true;
+        AUDIO.sfx("unlock");
+        ow.say("Quillby", [
+          "Yes! All three! Hold still... there.",
+          "The Echo Locket will sing the right song at the Heartroot's door.",
+          "(Echo Locket added to your items.)"
+        ]);
+      } else if (!g.flags.met_quillby) {
+        g.flags.met_quillby = true;
+        ow.say("Quillby", [
+          "Shh! Oh. Hello. I am Quillby, keeper of the Quiet Archive.",
+          "Three Echo Pages have blown loose: one in Glowfen, one in this archive, one in the Cinder Foundry.",
+          "Bring them to me and I will bind them into a Locket. The Heartroot's door opens only for those who carry an echo."
+        ]);
+      } else {
+        ow.say("Quillby", [`You have ${n} of 3 pages. One in Glowfen, one here among the shelves, one in the Foundry.`]);
+      }
+    }
+  }
+
+  class Pip extends Prop {
+    constructor(room, tile) { super(room, tile, [16, 16], false); }
+    draw(ctx, t) { drawPip(ctx, Math.round(this.x), Math.round(this.y + Math.sin(t * 3) * 4), t); }
+    interact(ow) {
+      const g = ow.game;
+      if (!g.flags.pip) {
+        g.flags.pip = true;
+        g.gold += 40;
+        AUDIO.sfx("buy");
+        ow.say("Pip", [
+          "Bzzt! You found my nook! Nobody ever finds my nook!",
+          "Here, take these shiny bits. (You got 40 gold.)",
+          "If the Heartroot ever gets too loud, remember: even the quietest light can be seen from far away."
+        ], "blip");
+      } else {
+        ow.say("Pip", ["Bzzt! Come visit anytime. I like company."], "blip");
+      }
+    }
+  }
+
+  class HushBell extends Prop {
+    constructor(room, tile) { super(room, tile, [34, 20], true); }
+    active(game) { return game.defeated.has("boss") && game.flags.ending !== "hollow"; }
+    draw(ctx, t) { drawHush(ctx, Math.round(this.x), Math.round(this.y + 4), t, 0.7); }
+    interact(ow) {
+      const g = ow.game;
+      const lines = g.flags.ending === "mercy"
+        ? ["...Little light. I can hear the valley again.",
+           "Thank you for ringing me gently. Below us, something old is beating. Be kind to it too."]
+        : ["I am quiet now. Not at peace, but quiet.",
+           "Down below, something is beating. Please... be careful."];
+      ow.say("Hush", lines, "blip_low");
+    }
+  }
+
+  class Page extends Prop {
+    constructor(room, tile, flag) { super(room, tile, [22, 22], false); this.flag = flag; }
+    active(game) { return !game.flags[this.flag]; }
+    draw(ctx, t) { drawPage(ctx, Math.round(this.x), Math.round(this.y), t); }
+    interact(ow) {
+      const g = ow.game;
+      g.flags[this.flag] = true;
+      const n = PAGE_FLAGS.filter(f => g.flags[f]).length;
+      AUDIO.sfx("page");
+      ow.say("", [`You found an Echo Page! (${n}/3)`]);
+    }
+  }
+
+  class SavePoint extends Prop {
+    constructor(room, tile) { super(room, tile, [24, 24], false); }
+    draw(ctx, t) { drawSavepoint(ctx, this.x, this.y, t); }
+    interact(ow) {
+      const g = ow.game;
+      g.hp = g.max_hp;
+      g.spawn = [this.tile[0], this.tile[1] + 1];
+      g.room_key = this.room;
+      const ok = g.save();
+      AUDIO.sfx("save");
+      ow.say("", [
+        "Warm light settles over you. HP fully restored.",
+        ok ? "Progress saved." : "...but the save file could not be written."
+      ]);
+    }
+  }
+
+  class Sign extends Prop {
+    constructor(room, tile, lines) { super(room, tile, [20, 10], true); this.lines = lines; }
+    draw(ctx) { drawSign(ctx, Math.round(this.x), Math.round(this.y)); }
+    interact(ow) { ow.say("", this.lines); }
+  }
+
+  class Chest extends Prop {
+    constructor(room, tile, item, flag) { super(room, tile, [24, 14], true); this.item = item; this.flag = flag; }
+    draw(ctx, t, game) { drawChest(ctx, Math.round(this.x), Math.round(this.y), !!game.flags[this.flag]); }
+    interact(ow) {
+      const g = ow.game;
+      if (g.flags[this.flag]) {
+        ow.say("", ["The chest is empty."]);
+      } else if (g.items.length >= INVENTORY_MAX) {
+        AUDIO.sfx("error");
+        ow.say("", ["Your pockets are full. You cannot carry anything else."]);
+      } else {
+        g.flags[this.flag] = true;
+        g.items.push(this.item);
+        AUDIO.sfx("heal");
+        ow.say("", [`You found a ${this.item}! (Added to your items.)`]);
+      }
+    }
+  }
+
+  function buildProps() {
+    return [
+      new Wick("landing", [12, 4]),
+      new SavePoint("landing", [3, 10]),
+      new Sign("hall", [9, 3], [
+        "ECHO HALL. Speak softly; the hall answers in kind.",
+        "Scratched below: 'The Bell remembers every quarrel.'"
+      ]),
+      new Chest("hall", [9, 6], "Honey Biscuit", "chest_hall"),
+      new Mossback("market", [9, 4]),
+      new SavePoint("market", [3, 10]),
+      new Sign("stair", [3, 6], ["The echo grows louder below. The Hollow Bell waits at the bottom."]),
+      new SavePoint("stair", [17, 6]),
+      new HushBell("bellroom", [14, 5]),
+      new Bramble("roots_gate", [9, 4]),
+      new SavePoint("roots_gate", [9, 10]),
+      new Sign("roots_gate", [3, 6], [
+        "UNDERROOTS. Water the roots, and the roots will remember you.",
+        "A small note: 'Three pages lost to the wind. Ask Quillby in the Archive.'"
+      ]),
+      new Page("glowfen", [2, 12], "page_a"),
+      new Chest("glowfen", [17, 12], "Spore Tea", "chest_glow"),
+      new SavePoint("glowfen", [17, 5]),
+      new Quillby("archive", [17, 11]),
+      new Page("archive", [4, 11], "page_b"),
+      new Chest("archive", [17, 3], "Ember Bun", "chest_archive"),
+      new SavePoint("archive", [9, 12]),
+      new Sign("archive", [2, 6], ["QUIET, PLEASE. The books here are sleeping."]),
+      new Cinder("foundry", [4, 11]),
+      new Page("foundry", [17, 12], "page_c"),
+      new SavePoint("foundry", [9, 12]),
+      new Sign("foundry", [17, 5], ["CINDER FOUNDRY. The gate beyond opens only when its guardian is satisfied."]),
+      new WickDeep("choirhall", [12, 4]),
+      new SavePoint("choirhall", [16, 11]),
+      new Sign("choirhall", [3, 7], ["THE CHOIR HALL. Once, a thousand voices sang here. The echoes still remember."]),
+      new Pip("nook", [10, 6]),
+      new Chest("nook", [14, 9], "Heartroot Sap", "chest_nook"),
+    ];
+  }
+
+  // =========================================================================
+  // ENEMIES & MONSTERS (9 ENEMIES + 15 OVERWORLD SPAWNS)
+  // =========================================================================
+  const makeEnemy = (kw) => ({
+    phase_hp: [], phase_turn: [], phase_text: [], bubble_dx: 80, flag: null,
+    role: null, oscale: 1, bscale: 3, bcy: 150, music: "battle",
+    ...kw
+  });
+
+  const ENEMIES = {
+    mothlet: makeEnemy({
+      name: "Mothlet", hp: 18, atk: 3, defense: 0, exp: 5, gold: 6, draw: drawMothlet, hitbox: [28, 28],
+      phases: [["rain", "spiral"]],
+      intro: "A Mothlet flutters out of the dark!",
+      flavor: ["Mothlet circles your glow.", "Glittering dust drifts from Mothlet's wings.", "Mothlet seems nervous, but curious."],
+      acts: [
+        ["Check", "MOTHLET  ATK 3  DEF 0\nIt only wants to be near light.", 0, 0],
+        ["Hum", "You hum a soft tune. Mothlet relaxes its wings.", 50, 0],
+        ["Dim Lantern", "You dim your lantern. Mothlet drifts closer, calmer.", 50, 0],
+        ["Flash", "You flash your lantern. Mothlet panics!", 0, 1]
+      ],
+      talk: {
+        base: ["I like your glow...", "Stay still! Please!"],
+        mid: ["That sound... nice.", "Mothlet feels safe."],
+        calm: ["Friend?"],
+        angry: ["Too bright! Too bright!"]
+      },
+      spare_fail: "Mothlet is still too jumpy to be spared.",
+      spared: "You let Mothlet go. It flutters away, glowing happily.",
+      win: "Mothlet scatters into dim glitter."
+    }),
+    gloomcap: makeEnemy({
+      name: "Gloomcap", hp: 26, atk: 4, defense: 1, exp: 8, gold: 9, draw: drawGloomcap, hitbox: [30, 30],
+      phases: [["burst", "aimed"]],
+      intro: "A Gloomcap sulks in your way.",
+      flavor: ["Gloomcap droops its cap.", "Gloomcap mutters about the damp.", "A faint cold mist hangs around Gloomcap."],
+      acts: [
+        ["Check", "GLOOMCAP  ATK 4  DEF 1\nEveryone avoids it. It is very lonely.", 0, 0],
+        ["Share Light", "You hold out your lantern. Gloomcap's cap perks up.", 50, 0],
+        ["Compliment", "You say its cap is handsome. Gloomcap blushes purple.", 50, 0],
+        ["Poke", "You poke Gloomcap. It sulks even harder.", 0, 1]
+      ],
+      talk: {
+        base: ["Go away... or stay?", "Nobody ever stays."],
+        mid: ["...your light is warm."],
+        calm: ["Maybe damp is not so bad."],
+        angry: ["Rude! Rude spores!"]
+      },
+      spare_fail: "Gloomcap still wants more company.",
+      spared: "You spared Gloomcap. It follows your light a moment, then waves.",
+      win: "Gloomcap wilts into the shadows."
+    }),
+    wisp: makeEnemy({
+      name: "Hushwisp", hp: 30, atk: 5, defense: 1, exp: 12, gold: 12, draw: drawWisp, hitbox: [28, 32],
+      phases: [["bounce", "aimed", "waves"]],
+      intro: "A Hushwisp drifts closer without a sound.",
+      flavor: ["Hushwisp flickers silently.", "The air around Hushwisp is very still.", "Hushwisp leans toward your lantern."],
+      acts: [
+        ["Check", "HUSHWISP  ATK 5  DEF 1\nA flame that burns without sound.", 0, 0],
+        ["Whisper", "You whisper hello. The flame leans closer.", 50, 0],
+        ["Cup Hands", "You cup your hands around it. It stops flickering.", 50, 0],
+        ["Shout", "You shout. The flame flares in fright!", 0, 1]
+      ],
+      talk: {
+        base: ["...", "(it mouths something)"],
+        mid: ["(a tiny warm flicker)"],
+        calm: ["(it hums, almost)"],
+        angry: ["!!!"]
+      },
+      spare_fail: "Hushwisp is not calm enough yet.",
+      spared: "Hushwisp bobs once and drifts off, humming without sound.",
+      win: "Hushwisp gutters out."
+    }),
+    hush: makeEnemy({
+      name: "Warden Hush", hp: 120, atk: 7, defense: 3, exp: 25, gold: 50, draw: drawHush, hitbox: [58, 58],
+      bscale: 2, bcy: 140, oscale: 1.4, music: "boss", bubble_dx: 105, role: "act1",
+      phases: [["waves", "chorus", "bounce"], ["toll", "chorus", "toll", "bounce"]],
+      phase_hp: [0.5], phase_turn: [3], phase_text: ["Hush's tolling deepens. Your heart grows heavy!"],
+      intro: "Warden Hush looms, trembling with echoes.",
+      flavor: ["The air shakes with every toll.", "Hush's brass rim hums.", "Cracks glow faintly along Hush's side."],
+      acts: [
+        ["Check", "WARDEN HUSH  ATK 7  DEF 3\nA bell that rang so long it forgot why.", 0, 0],
+        ["Listen", "You listen. Beneath the tolling, it is crying.", 30, 0],
+        ["Hum", "You hum the tune of the old valley. The echo softens.", 35, 0],
+        ["Share Light", "You raise your lantern. Hush sees its reflection in the brass.", 35, 0],
+        ["Shout", "You shout. The echo shouts back, louder.", 0, 1]
+      ],
+      talk: {
+        base: ["TOLL. TOLL. TOLL.", "Silence is safer than song.", "Who rings me again?"],
+        mid: ["...that melody...", "I remember a valley."],
+        calm: ["Ring me... gently."],
+        angry: ["LOUDER! LOUDER!"]
+      },
+      spare_fail: "Hush is not ready. Its echo still shakes.",
+      spared: "Hush quiets. The tolling stops, and a soft chime fills the cave.",
+      win: "Hush cracks and falls silent."
+    }),
+    rootling: makeEnemy({
+      name: "Rootling", hp: 36, atk: 5, defense: 2, exp: 14, gold: 14, draw: drawRootling, hitbox: [30, 30],
+      phases: [["lanes", "rain", "aimed"]],
+      intro: "A Rootling wriggles out of the mud!",
+      flavor: ["Rootling wiggles its leaves.", "The soil around Rootling is dry and cracked.", "Rootling droops, thirsty."],
+      acts: [
+        ["Check", "ROOTLING  ATK 5  DEF 2\nIt only needs a drink.", 0, 0],
+        ["Pour Water", "You pour a little water. Rootling perks up.", 50, 0],
+        ["Pat Soil", "You pat its soil gently. Rootling sighs.", 50, 0],
+        ["Stomp", "You stomp. Rootling clamps shut in fear!", 0, 1]
+      ],
+      talk: {
+        base: ["Dry... so dry...", "Roots hurt..."],
+        mid: ["Ahh, damp."],
+        calm: ["Grow with me?"],
+        angry: ["Mean feet!"]
+      },
+      spare_fail: "Rootling is still too thirsty to be spared.",
+      spared: "You let Rootling go. It burrows off, leaves swaying happily.",
+      win: "Rootling withers into mulch."
+    }),
+    inkblot: makeEnemy({
+      name: "Inkblot", hp: 40, atk: 6, defense: 2, exp: 16, gold: 15, draw: drawInkblot, hitbox: [32, 30],
+      phases: [["burst", "sweep", "aimed"]],
+      intro: "An Inkblot oozes off the shelf!",
+      flavor: ["Inkblot drips quietly.", "Inkblot spells something nonsensical.", "Inkblot smells of old paper."],
+      acts: [
+        ["Check", "INKBLOT  ATK 6  DEF 2\nA story that lost its ending.", 0, 0],
+        ["Read Aloud", "You read a line aloud. Inkblot trembles, listening.", 50, 0],
+        ["Doodle", "You doodle a smile beside it. Inkblot copies it.", 50, 0],
+        ["Smudge", "You smudge Inkblot. It splatters in a panic!", 0, 1]
+      ],
+      talk: {
+        base: ["Once upon a... once upon a...", "What comes after?"],
+        mid: ["Read more..."],
+        calm: ["The end? No. A new page."],
+        angry: ["BLOT BLOT BLOT"]
+      },
+      spare_fail: "Inkblot still wants its ending.",
+      spared: "You let Inkblot go. It settles into a neat little period and rests.",
+      win: "Inkblot dries into a stain."
+    }),
+    cinderling: makeEnemy({
+      name: "Cinderling", hp: 46, atk: 7, defense: 3, exp: 20, gold: 18, draw: drawCinderling, hitbox: [30, 32],
+      phases: [["ember", "pulse", "waves"]],
+      intro: "A Cinderling crackles to life!",
+      flavor: ["Cinderling crackles.", "The air shimmers around Cinderling.", "Cinderling kicks a spark."],
+      acts: [
+        ["Check", "CINDERLING  ATK 7  DEF 3\nHot-tempered, but only because it is cold inside.", 0, 0],
+        ["Fan Gently", "You fan it gently. Cinderling glows warm, not angry.", 50, 0],
+        ["Sing Lullaby", "You hum a lullaby. Cinderling's sparks slow down.", 50, 0],
+        ["Blow Hard", "You blow hard. Cinderling flares up!", 0, 1]
+      ],
+      talk: {
+        base: ["Burn burn burn!", "Do not look at me!"],
+        mid: ["...warm."],
+        calm: ["Stay by me?"],
+        angry: ["HOT HOT HOT!"]
+      },
+      spare_fail: "Cinderling is still too fired up.",
+      spared: "You let Cinderling go. It hops away, glowing softly.",
+      win: "Cinderling burns down to ash."
+    }),
+    clinker: makeEnemy({
+      name: "Clinker", hp: 80, atk: 8, defense: 4, exp: 40, gold: 40, draw: drawClinker, hitbox: [48, 50],
+      bscale: 2.6, oscale: 1.1, flag: "clinker_done", bubble_dx: 95,
+      phases: [["sweep", "pulse"], ["toll", "sweep", "lanes"]],
+      phase_hp: [0.5], phase_turn: [4], phase_text: ["Clinker's seams flare orange!"],
+      intro: "Clinker blocks the gate, humming like a kiln.",
+      flavor: ["Clinker's seams glow faintly.", "Heat rolls off Clinker in waves.", "Clinker stands very still, very proud."],
+      acts: [
+        ["Check", "CLINKER  ATK 8  DEF 4\nA guardian golem. Nobody has praised its work in years.", 0, 0],
+        ["Polish", "You buff its plating. Clinker gleams, stunned.", 40, 0],
+        ["Praise Craft", "You praise its fine joints. Clinker's glow softens.", 30, 0],
+        ["Hold Hammer", "You hold its hammer for it. Clinker rumbles gratefully.", 30, 0],
+        ["Kick", "You kick Clinker. Ow. It looks insulted.", 0, 1]
+      ],
+      talk: {
+        base: ["GATE. CLOSED.", "NONE. PASS."],
+        mid: ["...polish... nice."],
+        calm: ["...gate... open?"],
+        angry: ["CLANG! CLANG!"]
+      },
+      spare_fail: "Clinker is not satisfied yet.",
+      spared: "Clinker steps aside. The gate unlatches with a clunk.",
+      win: "Clinker crumbles into cooling slag."
+    }),
+    heartroot: makeEnemy({
+      name: "Heartroot", hp: 180, atk: 9, defense: 5, exp: 60, gold: 100, draw: drawHeartroot, hitbox: [70, 70],
+      bscale: 2.2, bcy: 135, oscale: 1.0, music: "heart", bubble_dx: 110, role: "act2",
+      phases: [["pulse", "lanes", "rain"], ["sweep", "toll", "ember"], ["pulse", "sweep", "chorus", "toll"]],
+      phase_hp: [0.66, 0.33], phase_turn: [2, 5],
+      phase_text: [
+        "The roots tighten. The whole cave pulses faster!",
+        "The Heartroot's glow turns brittle white. It is frightened!"
+      ],
+      intro: "The Heartroot thrums, and the whole cave thrums with it.",
+      flavor: ["The Heartroot pulses slowly.", "Roots crawl across the floor toward you.", "A deep warm light beats in the Heartroot."],
+      acts: [
+        ["Check", "HEARTROOT  ATK 9  DEF 5\nIt holds every angry echo the cave ever heard.", 0, 0],
+        ["Water", "You pour water on its roots. The Heartroot shivers.", 30, 0],
+        ["Sing", "You sing the valley's old lullaby. The pulse slows.", 35, 0],
+        ["Show Locket", "The Echo Locket sings. The Heartroot hears its own name.", 35, 0],
+        ["Shout", "You shout. The roots lash out, louder.", 0, 1]
+      ],
+      talk: {
+        base: ["I HOLD IT ALL.", "LET ME HOLD IT ALL.", "So loud... so loud..."],
+        mid: ["...that song...", "So quiet, suddenly."],
+        calm: ["Lighter. I feel lighter."],
+        angry: ["LOUDER! LOUDER!"]
+      },
+      spare_fail: "The Heartroot is not ready. Its pulse is still fierce.",
+      spared: "The Heartroot unclenches. Every angry echo drains from the cave.",
+      win: "The Heartroot dims, and the roots let go."
+    }),
+  };
+
+  const MONSTER_SPAWNS = [
+    ["mothlet_1", "mothlet", "corridor", [10, 7], [110, 40]],
+    ["gloomcap_1", "gloomcap", "hall", [9, 10], [0, 0]],
+    ["wisp_1", "wisp", "stair", [8, 7], [50, 45]],
+    ["wisp_2", "wisp", "stair", [16, 7], [40, 45]],
+    ["boss", "hush", "bellroom", [9, 6], [0, 0]],
+    ["rootling_1", "rootling", "glowfen", [6, 9], [30, 0]],
+    ["rootling_2", "rootling", "glowfen", [12, 3], [30, 20]],
+    ["ink_1", "inkblot", "archive", [9, 7], [80, 0]],
+    ["ink_2", "inkblot", "archive", [13, 11], [60, 0]],
+    ["cinder_1", "cinderling", "foundry", [6, 7], [40, 40]],
+    ["cinder_2", "cinderling", "foundry", [11, 11], [50, 0]],
+    ["clinker", "clinker", "foundry", [15, 7], [0, 0]],
+    ["wisp_3", "wisp", "choirhall", [6, 6], [40, 40]],
+    ["wisp_4", "wisp", "choirhall", [12, 9], [50, 30]],
+    ["heart", "heartroot", "heartroot", [10, 6], [0, 0]],
+  ];
+
+  class Monster {
+    constructor(uid, key, room, tile, roam) {
+      this.uid = uid;
+      this.key = key;
+      this.room = room;
+      this.home = [tile[0] * TILE + TILE / 2, tile[1] * TILE + TILE / 2];
+      this.roam = roam;
+      this.x = this.home[0];
+      this.y = this.home[1];
+      this.alive = true;
+      this.t = Math.random() * 6;
+    }
+
+    update(dt) {
+      this.t += dt;
+      this.x = this.home[0] + Math.sin(this.t * 1.3) * this.roam[0];
+      this.y = this.home[1] + Math.sin(this.t * 1.9) * this.roam[1];
+    }
+
+    get rect() {
+      const [w, h] = ENEMIES[this.key].hitbox;
+      return { x: Math.round(this.x) - w / 2, y: Math.round(this.y) - h / 2, w, h };
+    }
+
+    draw(ctx) {
+      const d = ENEMIES[this.key];
+      const [w, h] = d.hitbox;
+      fillEllipse(ctx, Math.round(this.x) - w / 2, Math.round(this.y) + h / 2 - 4, w, 8, BLACK);
+      d.draw(ctx, Math.round(this.x), Math.round(this.y), this.t, d.oscale);
+    }
+  }
+
+  // =========================================================================
+  // BULLETS & ALL 12 DODGE PATTERNS
+  // =========================================================================
+  class Bullet {
+    constructor(x, y, vx, vy, r = 5, color = [255, 255, 255], opts = {}) {
+      this.x = x; this.y = y; this.vx = vx; this.vy = vy;
+      this.r = r; this.color = color;
+      this.w = opts.w || 0;
+      this.h = opts.h || 0;
+      this.fuse = opts.fuse !== undefined ? opts.fuse : null;
+      this.bounce = !!opts.bounce;
+      this.ay = opts.ay || 0.0;
+      this.warn = opts.warn || 0.0;
+      this.life = opts.life !== undefined ? opts.life : null;
+      this.dead = false;
+    }
+
+    update(dt, inner) {
+      const spawned = [];
+      if (this.warn > 0) {
+        this.warn -= dt;
+        return spawned;
+      }
+      if (this.life !== null) {
+        this.life -= dt;
+        if (this.life <= 0) this.dead = true;
+      }
+      this.vy += this.ay * dt;
+      this.x += this.vx * dt;
+      this.y += this.vy * dt;
+      if (this.bounce) {
+        if (this.x < inner.x + this.r) { this.x = inner.x + this.r; this.vx = Math.abs(this.vx); }
+        else if (this.x > inner.x + inner.w - this.r) { this.x = inner.x + inner.w - this.r; this.vx = -Math.abs(this.vx); }
+        if (this.y < inner.y + this.r) { this.y = inner.y + this.r; this.vy = Math.abs(this.vy); }
+        else if (this.y > inner.y + inner.h - this.r) { this.y = inner.y + inner.h - this.r; this.vy = -Math.abs(this.vy); }
+      }
+      if (this.fuse !== null) {
+        this.fuse -= dt;
+        if (this.fuse <= 0) {
+          this.dead = true;
+          for (let k = 0; k < 8; k++) {
+            const a = k * Math.PI / 4;
+            spawned.push(new Bullet(this.x, this.y, Math.cos(a) * 110, Math.sin(a) * 110, 4, [210, 130, 255]));
+          }
+        }
+      }
+      return spawned;
+    }
+
+    hits(hx, hy) {
+      if (this.warn > 0) return false;
+      if (this.w) {
+        const box = { x: this.x - this.w / 2, y: this.y - this.h / 2, w: this.w, h: this.h };
+        return rectOverlap(box, { x: hx - 4, y: hy - 4, w: 8, h: 8 });
+      }
+      return (this.x - hx) ** 2 + (this.y - hy) ** 2 <= (this.r + 3.5) ** 2;
+    }
+
+    draw(ctx) {
+      const col = rgb(...this.color);
+      if (this.w) {
+        const bx = Math.round(this.x - this.w / 2), by = Math.round(this.y - this.h / 2);
+        if (this.warn > 0) {
+          if (Math.floor(this.warn * 14) % 2 === 0) {
+            ctx.strokeStyle = rgb(150, 60, 60);
+            ctx.lineWidth = 1;
+            ctx.strokeRect(bx, by, this.w, this.h);
+          }
+        } else {
+          ctx.fillStyle = col;
+          ctx.fillRect(bx, by, this.w, this.h);
+        }
+      } else {
+        const dim = rgb(...this.color.map(c => (c / 3) | 0));
+        fillCircle(ctx, this.x, this.y, this.r + 2, dim);
+        fillCircle(ctx, this.x, this.y, this.r, col);
+      }
+    }
+  }
+
+  class Pattern {
+    constructor(arena, heart, k) {
+      this.a = arena;
+      this.heart = heart;
+      this.k = k;
+      this.t = 0.0;
+      this.acc = 0.0;
+      this.mode = "red";
+      this.duration = 5.0;
+    }
+    due(dt, interval) {
+      this.acc += dt;
+      let n = 0;
+      while (this.acc >= interval) {
+        this.acc -= interval;
+        n++;
+      }
+      return n;
+    }
+    update(dt, bullets) { this.t += dt; }
+  }
+
+  class Rain extends Pattern {
+    update(dt, bullets) {
+      this.t += dt;
+      const count = this.due(dt, 0.30 / this.k);
+      for (let i = 0; i < count; i++) {
+        bullets.push(new Bullet(randRange(this.a.x + 8, this.a.x + this.a.w - 8), this.a.y - 6,
+          0, 105 * (0.9 + 0.2 * this.k), 5, [140, 200, 255]));
+      }
+    }
+  }
+
+  class Aimed extends Pattern {
+    update(dt, bullets) {
+      this.t += dt;
+      const count = this.due(dt, 0.75 / this.k);
+      for (let i = 0; i < count; i++) {
+        const side = randChoice(["l", "r", "t"]);
+        let x, y;
+        if (side === "l") { x = this.a.x - 6; y = randRange(this.a.y, this.a.y + this.a.h); }
+        else if (side === "r") { x = this.a.x + this.a.w + 6; y = randRange(this.a.y, this.a.y + this.a.h); }
+        else { x = randRange(this.a.x, this.a.x + this.a.w); y = this.a.y - 6; }
+        const [hx, hy] = this.heart();
+        const ang = Math.atan2(hy - y, hx - x);
+        bullets.push(new Bullet(x, y, Math.cos(ang) * 125, Math.sin(ang) * 125, 5, [255, 170, 90]));
+      }
+    }
+  }
+
+  class Spiral extends Pattern {
+    update(dt, bullets) {
+      this.t += dt;
+      const count = this.due(dt, 0.11 / this.k);
+      const cx = this.a.x + this.a.w / 2, cy = this.a.y + this.a.h / 2;
+      for (let i = 0; i < count; i++) {
+        const ang = this.t * 3.2;
+        bullets.push(new Bullet(cx, cy, Math.cos(ang) * 95, Math.sin(ang) * 95, 4, [255, 230, 120]));
+      }
+    }
+  }
+
+  class Waves extends Pattern {
+    update(dt, bullets) {
+      this.t += dt;
+      const amp = this.a.h / 2 - 14;
+      const cy = this.a.y + this.a.h / 2;
+      const count = this.due(dt, 0.14 / this.k);
+      for (let i = 0; i < count; i++) {
+        const y = cy + Math.sin(this.t * 3) * amp;
+        bullets.push(new Bullet(this.a.x + this.a.w + 6, y, -135, 0, 4, [190, 255, 190]));
+        bullets.push(new Bullet(this.a.x - 6, 2 * cy - y, 135, 0, 4, [190, 255, 190]));
+      }
+    }
+  }
+
+  class Burst extends Pattern {
+    constructor(arena, heart, k) { super(arena, heart, k); this.duration = 5.5; }
+    update(dt, bullets) {
+      this.t += dt;
+      const count = this.due(dt, 1.1 / this.k);
+      for (let i = 0; i < count; i++) {
+        bullets.push(new Bullet(randRange(this.a.x + 20, this.a.x + this.a.w - 20),
+          randRange(this.a.y + 10, this.a.y + this.a.h / 2),
+          0, 30, 6, [210, 130, 255], { fuse: 0.7 }));
+      }
+    }
+  }
+
+  class Bounce extends Pattern {
+    constructor(arena, heart, k) { super(arena, heart, k); this.started = false; }
+    update(dt, bullets) {
+      this.t += dt;
+      if (!this.started) {
+        this.started = true;
+        const n = Math.max(2, Math.floor(4 * this.k));
+        for (let i = 0; i < n; i++) {
+          const ang = randRange(0, Math.PI * 2);
+          bullets.push(new Bullet(randRange(this.a.x + 10, this.a.x + this.a.w - 10),
+            randRange(this.a.y + 10, this.a.y + this.a.h / 2),
+            Math.cos(ang) * 105, Math.sin(ang) * 105, 6, [130, 190, 255], { bounce: true }));
+        }
+      }
+    }
+  }
+
+  class Toll extends Pattern {
+    constructor(arena, heart, k) { super(arena, heart, k); this.mode = "blue"; this.duration = 6.5; this.n = 0; }
+    update(dt, bullets) {
+      this.t += dt;
+      const a = this.a;
+      const speed = -150 * (0.9 + 0.2 * this.k);
+      const count = this.due(dt, 0.95 / this.k);
+      for (let i = 0; i < count; i++) {
+        if (this.n % 2 === 0) {
+          bullets.push(new Bullet(a.x + a.w + 10, a.y + a.h - 7, speed, 0, 0, [255, 255, 255], { w: 16, h: 14 }));
+        } else {
+          const h = a.h - 28;
+          bullets.push(new Bullet(a.x + a.w + 10, a.y + h / 2, speed, 0, 0, [255, 200, 120], { w: 16, h }));
+        }
+        this.n++;
+      }
+    }
+  }
+
+  class Chorus extends Pattern {
+    constructor(arena, heart, k) {
+      super(arena, heart, k);
+      this.parts = [new Spiral(arena, heart, k * 0.7), new Rain(arena, heart, k * 0.8)];
+    }
+    update(dt, bullets) {
+      this.t += dt;
+      for (const p of this.parts) p.update(dt, bullets);
+    }
+  }
+
+  class Pulse extends Pattern {
+    constructor(arena, heart, k) { super(arena, heart, k); this.duration = 5.5; this.n = 0; }
+    update(dt, bullets) {
+      this.t += dt;
+      const cx = this.a.x + this.a.w / 2, cy = this.a.y + this.a.h / 2;
+      const count = this.due(dt, 1.2 / this.k);
+      for (let c = 0; c < count; c++) {
+        const off = this.n * 0.4;
+        for (let i = 0; i < 10; i++) {
+          const ang = off + i * Math.PI * 2 / 10;
+          bullets.push(new Bullet(cx, cy, Math.cos(ang) * 85, Math.sin(ang) * 85, 4, [255, 120, 170]));
+        }
+        this.n++;
+      }
+    }
+  }
+
+  class Lanes extends Pattern {
+    constructor(arena, heart, k) { super(arena, heart, k); this.duration = 6.0; }
+    update(dt, bullets) {
+      this.t += dt;
+      const a = this.a;
+      const count = this.due(dt, 1.5 / this.k);
+      for (let c = 0; c < count; c++) {
+        const gap = randRange(a.y + 20, a.y + a.h - 20);
+        let y = a.y + 6;
+        while (y < a.y + a.h - 4) {
+          if (Math.abs(y - gap) > 24) {
+            bullets.push(new Bullet(a.x + a.w + 6, y, -95, 0, 4, [150, 255, 170]));
+          }
+          y += 14;
+        }
+      }
+    }
+  }
+
+  class Ember extends Pattern {
+    update(dt, bullets) {
+      this.t += dt;
+      const a = this.a;
+      const count = this.due(dt, 0.4 / this.k);
+      for (let i = 0; i < count; i++) {
+        bullets.push(new Bullet(randRange(a.x + 8, a.x + a.w - 8), a.y + a.h + 4,
+          randRange(-40, 40), -randRange(180, 240), 5, [255, 140, 50], { ay: 320 }));
+      }
+    }
+  }
+
+  class Sweep extends Pattern {
+    constructor(arena, heart, k) { super(arena, heart, k); this.duration = 6.0; this.n = 0; }
+    update(dt, bullets) {
+      this.t += dt;
+      const a = this.a;
+      const count = this.due(dt, 1.5 / this.k);
+      for (let i = 0; i < count; i++) {
+        if (this.n % 2 === 0) {
+          const y = randRange(a.y + 12, a.y + a.h - 12);
+          bullets.push(new Bullet(a.x + a.w / 2, y, 0, 0, 0, [255, 90, 90], { w: a.w, h: 12, warn: 0.7, life: 0.4 }));
+        } else {
+          const x = randRange(a.x + 12, a.x + a.w - 12);
+          bullets.push(new Bullet(x, a.y + a.h / 2, 0, 0, 0, [255, 90, 90], { w: 12, h: a.h, warn: 0.7, life: 0.4 }));
+        }
+        this.n++;
+      }
+    }
+  }
+
+  const PATTERNS = {
+    rain: Rain, aimed: Aimed, spiral: Spiral, waves: Waves, burst: Burst,
+    bounce: Bounce, toll: Toll, chorus: Chorus, pulse: Pulse, lanes: Lanes,
+    ember: Ember, sweep: Sweep
+  };
+
+  // =========================================================================
+  // GAME STATES
+  // =========================================================================
+  class State {
+    constructor(game) { this.game = game; }
+    handleKeyDown(e) {}
+    update(dt) {}
+    draw(ctx) {}
+  }
+
+  const BAR_X0 = 60, BAR_W = 520;
+
+  // --- BATTLE STATE ---
+  class BattleState extends State {
+    constructor(game, overworld, monster) {
+      super(game);
+      this.BTN = ["FIGHT", "ACT", "ITEM", "MERCY"];
+      this.MENU_BOX = { x: 40, y: 270, w: 560, h: 100 };
+      this.ARENA = { x: 220, y: 236, w: 200, h: 134 };
+      this.TEXT_W = 490;
+
+      this.ow = overworld;
+      this.mon = monster;
+      this.d = ENEMIES[monster.key];
+      this.hp = this.d.hp;
+      this.t = 0.0;
+      this.fade = 255.0;
+      this.sel = 0;
+      this.sub = 0;
+      this.mercy = 0;
+      this.anger = 0;
+      this.used = new Set();
+      this.turn = 0;
+      this.phaseIdx = 0;
+      this.flavorI = (Math.random() * 6) | 0;
+      this.menuText = "";
+      this.shake = 0.0;
+      this.hitTimer = 0.0;
+      this.hitDmg = 0;
+      this.barX = 0.0;
+      this.queue = [];
+      this.after = null;
+      this.writer = new Typewriter("", 40, "blip");
+      this.phase = "text";
+      this.boxP = 0.0;
+      this.boxGoal = 0.0;
+      this.bullets = [];
+      this.pattern = null;
+      this.hx = 0.0;
+      this.hy = 0.0;
+      this.hvy = 0.0;
+      this.mode = "red";
+      this.inv = 0.0;
+      this.dodgeT = 0.0;
+      this.bubble = null;
+      this.bubbleWait = 0.0;
+      this.deadT = 0.0;
+      this.shards = [];
+      this.stars = Array.from({ length: 40 }, () => [randRange(0, W), randRange(0, H), randRange(8, 28)]);
+      AUDIO.playMusic(this.d.music);
+      this.say([this.d.intro], () => this.showMenuFresh());
+    }
+
+    say(lines, after) {
+      const pages = [];
+      for (const ln of lines) {
+        pages.push(...paginateText(this.game.ctx, ln, 20, this.TEXT_W, 3));
+      }
+      this.queue = pages;
+      this.after = after;
+      this.phase = "text";
+      this.writer = new Typewriter(this.queue.shift(), 40, "blip");
+    }
+
+    showMenuFresh() {
+      const flavors = this.d.flavor;
+      const text = flavors[this.flavorI % flavors.length];
+      this.flavorI++;
+      this.menuText = paginateText(this.game.ctx, text, 20, this.TEXT_W, 3)[0];
+      this.showMenu();
+    }
+
+    showMenu() {
+      this.phase = "menu";
+      this.writer = new Typewriter(this.menuText, 40, "blip");
+    }
+
+    choose() {
+      if (this.sel === 0) {
+        this.phase = "fight";
+        this.barX = 0.0;
+      } else if (this.sel === 1) {
+        this.phase = "act";
+        this.sub = 0;
+      } else if (this.sel === 2) {
+        if (this.game.items.length) {
+          this.phase = "item";
+          this.sub = 0;
+        } else {
+          AUDIO.sfx("error");
+          this.say(["You have no items."], () => this.showMenu());
+        }
+      } else {
+        this.doMercy();
+      }
+    }
+
+    doAct(i) {
+      let [label, text, gain, anger] = this.d.acts[i];
+      if (gain) {
+        if (this.used.has(label)) {
+          text = "You try that again, but nothing changes.";
+        } else {
+          this.used.add(label);
+          this.mercy = Math.min(100, this.mercy + gain);
+          if (this.mercy >= 100) {
+            text += "\n(It looks ready to be spared.)";
+          }
+        }
+      }
+      this.anger = Math.min(3, this.anger + anger);
+      this.say([text], () => this.enemyTurn());
+    }
+
+    doMercy() {
+      if (this.mercy >= 100) {
+        this.game.gold += this.d.gold;
+        this.say([this.d.spared, `You earned ${this.d.gold} gold.`], () => this.finish("spare"));
+      } else {
+        this.say([this.d.spare_fail], () => this.enemyTurn());
+      }
+    }
+
+    useItem(i) {
+      const msg = this.game.useItem(i);
+      this.say([msg], () => this.enemyTurn());
+    }
+
+    doHit() {
+      const g = this.game;
+      const acc = Math.max(0.0, 1 - Math.abs(this.barX - BAR_W / 2) / (BAR_W / 2));
+      const dmg = acc < 0.08
+        ? 0
+        : Math.max(1, Math.round(2 + acc * (9 + g.atk)) + Math.floor(g.atk / 2) - this.d.defense);
+      this.hitDmg = dmg;
+      this.hp -= dmg;
+      this.shake = dmg ? 0.6 : 0.0;
+      this.hitTimer = 1.1;
+      this.phase = "fight_hit";
+      AUDIO.sfx("slash");
+      if (dmg) g.shake(5, 0.2);
+    }
+
+    winKill() {
+      const g = this.game;
+      const exp = this.d.exp, gold = this.d.gold;
+      const before = g.lv;
+      g.gainExp(exp);
+      g.gold += gold;
+      const lines = [this.d.win, `You earned ${exp} EXP and ${gold} gold.`];
+      if (g.lv > before) {
+        AUDIO.sfx("heal");
+        lines.push(`Your LV rose to ${g.lv}! Max HP up!`);
+      }
+      this.say(lines, () => this.finish("kill"));
+    }
+
+    finish(result) {
+      const g = this.game;
+      const m = this.mon;
+      m.alive = false;
+      g.defeated.add(m.uid);
+      if (result === "kill") g.kills++;
+      else g.spares++;
+      if (this.d.flag) g.flags[this.d.flag] = true;
+      const role = this.d.role;
+      if (role === "act1") {
+        const kind = result === "kill" ? "hollow" : (g.kills === 0 ? "mercy" : "neutral");
+        g.changeState(new EndingState(g, kind));
+      } else if (role === "act2") {
+        if (result === "kill") {
+          g.changeState(new EndingState(g, "overgrown"));
+        } else if (g.kills > 0) {
+          g.changeState(new EndingState(g, "rootbound"));
+        } else {
+          g.changeState(new ChoiceState(
+            g,
+            "The roots fall quiet. Wick's voice drifts down the stair: 'The surface is open. What will you do, little one?'",
+            ["Climb to the surface", "Stay and tend the cave"],
+            [() => new EndingState(g, "dawn"), () => new EndingState(g, "keeper")]
+          ));
+        }
+      } else {
+        this.ow.fade = 255.0;
+        this.ow.fading = "in";
+        this.ow.playRoomMusic();
+        g.changeState(this.ow);
+      }
+    }
+
+    computePhase() {
+      let idx = 0;
+      for (let i = 0; i < this.d.phase_hp.length; i++) {
+        const frac = this.d.phase_hp[i];
+        const tn = this.d.phase_turn[i];
+        if (this.hp <= this.d.hp * frac || this.turn >= tn) idx = i + 1;
+      }
+      return idx;
+    }
+
+    enemyTurn() {
+      const idx = this.computePhase();
+      if (idx > this.phaseIdx) {
+        this.phaseIdx = idx;
+        AUDIO.sfx("bell");
+        this.game.shake(8, 0.5);
+        this.say([this.d.phase_text[idx - 1]], () => this.beginTalk());
+        return;
+      }
+      this.beginTalk();
+    }
+
+    pickTalk() {
+      const talk = this.d.talk;
+      if (this.anger > 0 && Math.random() < 0.6) return randChoice(talk.angry);
+      if (this.mercy >= 100) return randChoice(talk.calm);
+      if (this.mercy >= 50) return randChoice(talk.mid);
+      return randChoice(talk.base);
+    }
+
+    beginTalk() {
+      this.turn++;
+      const line = wrapText(this.game.ctx, this.pickTalk(), 16, 176).join("\n");
+      this.bubble = new Typewriter(line, 30, "blip_low");
+      this.bubbleWait = 0.0;
+      this.phase = "talk";
+    }
+
+    startDodge() {
+      const lists = this.d.phases;
+      const seq = lists[Math.min(this.phaseIdx, lists.length - 1)];
+      const name = seq[this.turn % seq.length];
+      const k = clamp(1.0 + 0.25 * this.anger - 0.5 * this.mercy / 100, 0.45, 1.6);
+      const inner = rectInflate(this.ARENA, -12, -12);
+      const PatternCls = PATTERNS[name];
+      this.pattern = new PatternCls(inner, () => [this.hx, this.hy], k);
+      this.mode = this.pattern.mode;
+      this.hx = inner.x + inner.w / 2;
+      this.hy = this.mode === "blue" ? (inner.y + inner.h - 5) : (inner.y + inner.h - 24);
+      this.hvy = 0.0;
+      this.bullets = [];
+      this.dodgeT = 0.0;
+      this.inv = 0.8;
+      this.boxGoal = 1.0;
+      this.phase = "dodge";
+    }
+
+    updateHeart(dt) {
+      const dx = (isHeld(RIGHT_CODES) ? 1 : 0) - (isHeld(LEFT_CODES) ? 1 : 0);
+      const dy = (isHeld(DOWN_CODES) ? 1 : 0) - (isHeld(UP_CODES) ? 1 : 0);
+      const slow = isHeld(SKIP_CODES);
+      const sp = 150 * (slow ? 0.5 : 1.0);
+      const inner = rectInflate(this.ARENA, -12, -12);
+      const left = inner.x + 5, right = inner.x + inner.w - 5;
+      const top = inner.y + 5, bottom = inner.y + inner.h - 5;
+      this.hx += dx * sp * dt;
+      if (this.mode === "red") {
+        this.hy += dy * sp * dt;
+      } else {
+        const jump = isHeld(UP_CODES) || isHeld(CONFIRM_CODES);
+        if (jump && this.hy >= bottom - 0.5) {
+          this.hvy = -300;
+        }
+        this.hvy += 820 * dt;
+        this.hy += this.hvy * dt;
+        if (this.hy >= bottom) { this.hy = bottom; this.hvy = 0.0; }
+        if (this.hy <= top) { this.hy = top; this.hvy = Math.max(0.0, this.hvy); }
+      }
+      this.hx = clamp(this.hx, left, right);
+      this.hy = clamp(this.hy, top, bottom);
+    }
+
+    updateBullets(dt) {
+      const inner = rectInflate(this.ARENA, -12, -12);
+      const limit = rectInflate(this.ARENA, 120, 120);
+      const keep = [], nextNew = [];
+      for (const b of this.bullets) {
+        nextNew.push(...b.update(dt, inner));
+        if (b.dead || !rectContains(limit, b.x, b.y)) continue;
+        if (this.inv <= 0 && b.hits(this.hx, this.hy)) {
+          this.hurt();
+        }
+        keep.push(b);
+      }
+      this.bullets = keep.concat(nextNew);
+      this.inv = Math.max(0.0, this.inv - dt);
+    }
+
+    hurt() {
+      const g = this.game;
+      const dmg = Math.max(1, this.d.atk + Math.min(2, this.phaseIdx) - g.defense);
+      g.hp -= dmg;
+      this.inv = 1.1;
+      AUDIO.sfx("hit");
+      g.shake(6, 0.25);
+      g.flash([255, 0, 0], 0.15);
+      if (g.hp <= 0) {
+        g.hp = 0;
+        this.phase = "dying";
+        this.deadT = 0.0;
+        this.bullets = [];
+        AUDIO.playMusic(null);
+      }
+    }
+
+    moveBox(dt) {
+      if (this.boxP < this.boxGoal) this.boxP = Math.min(this.boxGoal, this.boxP + dt * 5);
+      else if (this.boxP > this.boxGoal) this.boxP = Math.max(this.boxGoal, this.boxP - dt * 5);
+    }
+
+    boxRect() {
+      const a = this.MENU_BOX, b = this.ARENA, p = this.boxP;
+      return {
+        x: Math.round(a.x + (b.x - a.x) * p),
+        y: Math.round(a.y + (b.y - a.y) * p),
+        w: Math.round(a.w + (b.w - a.w) * p),
+        h: Math.round(a.h + (b.h - a.h) * p),
+      };
+    }
+
+    handleKeyDown(e) {
+      const k = e.code;
+      const confirm = CONFIRM_CODES.has(k);
+      const ph = this.phase;
+      if (ph === "text") {
+        if (confirm) {
+          if (!this.writer.done) this.writer.finish();
+          else if (this.queue.length) this.writer = new Typewriter(this.queue.shift(), 40, "blip");
+          else this.after();
+        }
+      } else if (ph === "menu") {
+        if (LEFT_CODES.has(k)) { this.sel = (this.sel + 3) % 4; AUDIO.sfx("select"); }
+        else if (RIGHT_CODES.has(k)) { this.sel = (this.sel + 1) % 4; AUDIO.sfx("select"); }
+        else if (confirm) { AUDIO.sfx("confirm"); this.choose(); }
+      } else if (ph === "act" || ph === "item") {
+        const labels = ph === "act" ? this.d.acts.map(a => a[0]) : this.game.items;
+        if (UP_CODES.has(k)) { this.sub = (this.sub - 1 + labels.length) % labels.length; AUDIO.sfx("select"); }
+        else if (DOWN_CODES.has(k)) { this.sub = (this.sub + 1) % labels.length; AUDIO.sfx("select"); }
+        else if (BACK_CODES.has(k)) this.showMenu();
+        else if (confirm) {
+          AUDIO.sfx("confirm");
+          if (ph === "act") this.doAct(this.sub);
+          else this.useItem(this.sub);
+        }
+      } else if (ph === "fight") {
+        if (confirm) this.doHit();
+      } else if (ph === "talk") {
+        if (confirm) {
+          if (!this.bubble.done) this.bubble.finish();
+          else this.startDodge();
+        }
+      }
+    }
+
+    update(dt) {
+      this.t += dt;
+      this.fade = Math.max(0.0, this.fade - 600 * dt);
+      this.shake = Math.max(0.0, this.shake - dt);
+      for (const s of this.stars) {
+        s[1] += s[2] * dt;
+        if (s[1] > H) { s[0] = randRange(0, W); s[1] = 0; }
+      }
+      const ph = this.phase;
+      if (ph === "text" || ph === "menu") {
+        this.writer.update(dt);
+      } else if (ph === "fight") {
+        this.barX += 420 * dt;
+        if (this.barX >= BAR_W) {
+          this.barX = BAR_W;
+          this.doHit();
+        }
+      } else if (ph === "fight_hit") {
+        this.hitTimer -= dt;
+        if (this.hitTimer <= 0) {
+          if (this.hp <= 0) this.winKill();
+          else this.enemyTurn();
+        }
+      } else if (ph === "talk") {
+        this.bubble.update(dt);
+        if (this.bubble.done) {
+          this.bubbleWait += dt;
+          if (this.bubbleWait > 1.3) this.startDodge();
+        }
+      } else if (ph === "dodge") {
+        this.moveBox(dt);
+        if (this.boxP >= 1.0) {
+          this.updateHeart(dt);
+          this.dodgeT += dt;
+          this.pattern.update(dt, this.bullets);
+          this.updateBullets(dt);
+          if (this.dodgeT >= this.pattern.duration && this.phase === "dodge") {
+            this.boxGoal = 0.0;
+            this.bullets = [];
+            this.phase = "retract";
+          }
+        }
+      } else if (ph === "retract") {
+        this.moveBox(dt);
+        if (this.boxP <= 0.0) this.showMenuFresh();
+      } else if (ph === "dying") {
+        this.deadT += dt;
+        if (this.deadT >= 0.6 && !this.shards.length) {
+          AUDIO.sfx("break");
+          this.shards = Array.from({ length: 6 }, () => [this.hx, this.hy, randRange(-90, 90), randRange(-160, -40)]);
+        }
+        for (const s of this.shards) {
+          s[0] += s[2] * dt;
+          s[1] += s[3] * dt;
+          s[3] += 380 * dt;
+        }
+        if (this.deadT >= 2.4) this.game.changeState(new GameOverState(this.game));
+      }
+    }
+
+    draw(ctx) {
+      ctx.fillStyle = BLACK;
+      ctx.fillRect(0, 0, W, H);
+      ctx.fillStyle = rgb(40, 40, 72);
+      for (const [sx, sy] of this.stars) ctx.fillRect(sx | 0, sy | 0, 2, 2);
+
+      const offs = this.shake > 0 ? Math.round(Math.sin(this.t * 60) * this.shake * 16) : 0;
+      if (this.hp > 0 && this.phase !== "dying") {
+        const cy = this.d.bcy + Math.round(Math.sin(this.t * 2) * 4);
+        this.d.draw(ctx, W / 2 + offs, cy, this.t, this.d.bscale);
+      }
+
+      if (this.phase === "fight_hit") {
+        if (this.hitTimer > 0.75) {
+          for (let i = 0; i < 3; i++) {
+            drawLine(ctx, W / 2 - 50 + i * 14, 90, W / 2 + 10 + i * 14, 200, WHITE, 3);
+          }
+        }
+        const bar = { x: W / 2 - 60, y: 222, w: 120, h: 12 };
+        ctx.fillStyle = rgb(120, 0, 0);
+        ctx.fillRect(bar.x, bar.y, bar.w, bar.h);
+        const frac = Math.max(0, this.hp) / this.d.hp;
+        ctx.fillStyle = GREEN;
+        ctx.fillRect(bar.x, bar.y, Math.round(bar.w * frac), bar.h);
+        const txt = this.hitDmg === 0 ? "MISS" : String(this.hitDmg);
+        drawCenteredText(ctx, txt, 30, W / 2, 200 - Math.round((1 - this.hitTimer) * 14), this.hitDmg ? RED : GREY);
+      }
+
+      if (this.phase === "talk") {
+        const lines = this.bubble.text.split("\n");
+        const bh = 16 + 20 * lines.length;
+        const br = { x: W / 2 + this.d.bubble_dx, y: 50, w: 200, h: bh };
+        ctx.fillStyle = WHITE;
+        ctx.fillRect(br.x, br.y, br.w, br.h);
+        fillPoly(ctx, [[br.x, br.y + 20], [br.x - 14, br.y + 28], [br.x, br.y + 34]], WHITE);
+        drawTyped(ctx, 16, this.bubble.text, this.bubble.shown, br.x + 12, br.y + 8, 20, BLACK);
+      }
+
+      const box = this.boxRect();
+      drawPanel(ctx, box);
+      const ph = this.phase;
+
+      if (ph === "text" || ph === "menu") {
+        setFont(ctx, 20);
+        ctx.fillStyle = WHITE;
+        ctx.fillText("*", 64, 286);
+        drawTyped(ctx, 20, this.writer.text, this.writer.shown, 86, 286, 24);
+      } else if (ph === "act") {
+        drawMenuList(ctx, 20, this.d.acts.map(a => a[0]), this.sub, 90, 286, 26);
+      } else if (ph === "item") {
+        drawMenuList(ctx, 20, this.game.items, this.sub, 90, 286, 26);
+      } else if (ph === "fight") {
+        ctx.fillStyle = rgb(40, 40, 40);
+        ctx.fillRect(BAR_X0, 300, BAR_W, 36);
+        ctx.fillStyle = GREEN;
+        ctx.fillRect(BAR_X0 + BAR_W / 2 - 20, 300, 40, 36);
+        ctx.strokeStyle = WHITE;
+        ctx.lineWidth = 3;
+        ctx.strokeRect(BAR_X0, 300, BAR_W, 36);
+        ctx.fillStyle = YELLOW;
+        ctx.fillRect(BAR_X0 + Math.round(this.barX) - 3, 292, 6, 52);
+      } else if ((ph === "dodge" || ph === "retract") && this.boxP >= 1.0) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(box.x + 4, box.y + 4, box.w - 8, box.h - 8);
+        ctx.clip();
+        for (const b of this.bullets) b.draw(ctx);
+        ctx.restore();
+        if (this.inv <= 0 || Math.floor(this.t * 20) % 2 === 0) {
+          drawHeart(ctx, this.hx, this.hy + 1, 6, this.mode === "blue" ? BLUE : RED);
+        }
+      } else if (ph === "dying") {
+        if (!this.shards.length) {
+          drawHeart(ctx, this.hx, this.hy + 1, 6, RED);
+        }
+        for (const [sx, sy] of this.shards) {
+          fillPoly(ctx, [[sx, sy - 3], [sx + 3, sy + 3], [sx - 3, sy + 3]], RED);
+        }
+      }
+
+      const g = this.game;
+      const statStr = `KIT  LV ${g.lv}   HP`;
+      setFont(ctx, 20);
+      ctx.fillStyle = WHITE;
+      ctx.fillText(statStr, 40, 382);
+      const statW = measureTextW(ctx, statStr, 20);
+      const hpBar = { x: 40 + statW + 12, y: 384, w: 90, h: 20 };
+      ctx.fillStyle = rgb(120, 0, 0);
+      ctx.fillRect(hpBar.x, hpBar.y, hpBar.w, hpBar.h);
+      ctx.fillStyle = YELLOW;
+      ctx.fillRect(hpBar.x, hpBar.y, Math.round(hpBar.w * Math.max(0, g.hp) / g.max_hp), hpBar.h);
+      ctx.fillStyle = WHITE;
+      ctx.fillText(`${Math.max(0, g.hp)} / ${g.max_hp}`, hpBar.x + hpBar.w + 12, 382);
+
+      for (let i = 0; i < this.BTN.length; i++) {
+        const label = this.BTN[i];
+        const r = { x: 40 + i * 142, y: 420, w: 124, h: 42 };
+        const selected = i === this.sel;
+        const color = selected ? YELLOW : ORANGE;
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 3;
+        ctx.strokeRect(r.x, r.y, r.w, r.h);
+        const tc = (label === "MERCY" && this.mercy >= 100) ? YELLOW : color;
+        drawCenteredText(ctx, label, 20, r.x + r.w / 2 + 8, r.y + r.h / 2, tc);
+        if (selected && this.phase === "menu") {
+          drawHeart(ctx, r.x + 18, r.y + r.h / 2, 7);
+        }
+      }
+
+      if (this.fade > 0) {
+        ctx.fillStyle = rgb(0, 0, 0, this.fade / 255);
+        ctx.fillRect(0, 0, W, H);
+      }
+    }
+  }
+
+  // --- PAUSE STATE ---
+  function drawStats(ctx, g, rect) {
+    drawPanel(ctx, rect);
+    const nxt = g.expToNext();
+    const lines = [
+      "KIT",
+      `LV  ${g.lv}`,
+      `HP  ${g.hp}/${g.max_hp}`,
+      `ATK ${g.atk}`,
+      `DEF ${g.defense}`,
+      `EXP ${g.exp}`,
+      `NEXT ${nxt ? nxt : "-"}`,
+      `GOLD ${g.gold}`
+    ];
+    setFont(ctx, 20);
+    lines.forEach((line, n) => {
+      ctx.fillStyle = n === 0 ? YELLOW : WHITE;
+      ctx.fillText(line, rect.x + 16, rect.y + 14 + n * 24);
+    });
+  }
+
+  class PauseState extends State {
+    constructor(game, ow) {
+      super(game);
+      this.ow = ow;
+      this.sub = 0;
+      this.msg = "";
+      AUDIO.sfx("confirm");
+    }
+
+    handleKeyDown(e) {
+      const k = e.code;
+      const g = this.game;
+      if (PAUSE_CODES.has(k) || BACK_CODES.has(k)) {
+        g.changeState(this.ow);
+      } else if (g.items.length && UP_CODES.has(k)) {
+        this.sub = (this.sub - 1 + g.items.length) % g.items.length;
+        AUDIO.sfx("select");
+      } else if (g.items.length && DOWN_CODES.has(k)) {
+        this.sub = (this.sub + 1) % g.items.length;
+        AUDIO.sfx("select");
+      } else if (CONFIRM_CODES.has(k) && g.items.length) {
+        this.msg = g.useItem(this.sub);
+        this.sub = Math.min(this.sub, Math.max(0, g.items.length - 1));
+      }
+    }
+
+    draw(ctx) {
+      const g = this.game;
+      ctx.fillStyle = BLACK;
+      ctx.fillRect(0, 0, W, H);
+      drawStats(ctx, g, { x: 24, y: 24, w: 190, h: 220 });
+
+      const eq = { x: 24, y: 256, w: 190, h: 100 };
+      drawPanel(ctx, eq);
+      setFont(ctx, 16);
+      ctx.fillStyle = WHITE;
+      ctx.fillText("WEAPON " + g.weapon, eq.x + 12, eq.y + 12);
+      ctx.fillText("ARMOR  " + g.armor, eq.x + 12, eq.y + 38);
+      const pages = PAGE_FLAGS.filter(f => g.flags[f]).length;
+      ctx.fillText(`PAGES  ${pages}/3`, eq.x + 12, eq.y + 64);
+
+      const lst = { x: 230, y: 24, w: 386, h: 332 };
+      drawPanel(ctx, lst);
+      setFont(ctx, 20);
+      ctx.fillStyle = YELLOW;
+      ctx.fillText("ITEMS", lst.x + 16, lst.y + 10);
+      if (!g.items.length) {
+        ctx.fillStyle = GREY;
+        ctx.fillText("(empty)", lst.x + 40, lst.y + 48);
+      }
+      ctx.fillStyle = WHITE;
+      g.items.forEach((name, n) => {
+        ctx.fillText(name, lst.x + 44, lst.y + 46 + n * 32);
+      });
+      if (g.items.length) {
+        drawHeart(ctx, lst.x + 26, lst.y + 56 + this.sub * 32, 7);
+      }
+
+      const info = { x: 24, y: 372, w: 592, h: 84 };
+      drawPanel(ctx, info);
+      const text = this.msg || (g.items.length ? ITEMS[g.items[this.sub]].desc : "Nothing to carry.");
+      drawTyped(ctx, 16, wrapText(ctx, text, 16, 560).slice(0, 3).join("\n"), 999, info.x + 16, info.y + 10, 22);
+
+      setFont(ctx, 16);
+      ctx.fillStyle = GREY;
+      ctx.fillText("Z: use / equip     C or X: close", 24, 460);
+    }
+  }
+
+  // --- SHOP STATE ---
+  class ShopState extends State {
+    constructor(game, ow, key) {
+      super(game);
+      this.ow = ow;
+      this.shop = SHOPS[key];
+      this.sub = 0;
+      this.t = 0.0;
+      this.msg = "Take your time!";
+      AUDIO.playMusic(this.shop.music);
+    }
+
+    leave() {
+      this.ow.playRoomMusic();
+      this.game.changeState(this.ow);
+    }
+
+    handleKeyDown(e) {
+      const k = e.code;
+      const g = this.game;
+      const stock = this.shop.stock;
+      if (BACK_CODES.has(k) || PAUSE_CODES.has(k)) {
+        this.leave();
+      } else if (UP_CODES.has(k)) {
+        this.sub = (this.sub - 1 + stock.length) % stock.length;
+        AUDIO.sfx("select");
+      } else if (DOWN_CODES.has(k)) {
+        this.sub = (this.sub + 1) % stock.length;
+        AUDIO.sfx("select");
+      } else if (CONFIRM_CODES.has(k)) {
+        const name = stock[this.sub];
+        const price = ITEMS[name].price;
+        if (g.gold < price) {
+          AUDIO.sfx("error");
+          this.msg = "Not enough gold, friend.";
+        } else if (g.items.length >= INVENTORY_MAX) {
+          AUDIO.sfx("error");
+          this.msg = "Your pockets are full!";
+        } else {
+          g.gold -= price;
+          g.items.push(name);
+          AUDIO.sfx("buy");
+          this.msg = `Sold! One ${name}.`;
+        }
+      }
+    }
+
+    update(dt) { this.t += dt; }
+
+    draw(ctx) {
+      const g = this.game;
+      const stock = this.shop.stock;
+      ctx.fillStyle = rgb(22, 16, 12);
+      ctx.fillRect(0, 0, W, H);
+      this.shop.art(ctx, 520, 130, this.t);
+
+      const lst = { x: 24, y: 24, w: 400, h: 330 };
+      drawPanel(ctx, lst);
+      setFont(ctx, 20);
+      ctx.fillStyle = YELLOW;
+      ctx.fillText(this.shop.title, lst.x + 16, lst.y + 10);
+
+      stock.forEach((name, n) => {
+        setFont(ctx, 20);
+        ctx.fillStyle = WHITE;
+        ctx.fillText(name, lst.x + 44, lst.y + 48 + n * 40);
+        setFont(ctx, 16);
+        ctx.fillStyle = YELLOW;
+        ctx.fillText(`${ITEMS[name].price}G`, lst.x + lst.w - 70, lst.y + 52 + n * 40);
+      });
+      drawHeart(ctx, lst.x + 26, lst.y + 58 + this.sub * 40, 7);
+
+      const goldBox = { x: 440, y: 200, w: 176, h: 60 };
+      drawPanel(ctx, goldBox);
+      setFont(ctx, 20);
+      ctx.fillStyle = WHITE;
+      ctx.fillText(`GOLD ${g.gold}`, goldBox.x + 16, goldBox.y + 18);
+
+      const info = { x: 24, y: 372, w: 592, h: 84 };
+      drawPanel(ctx, info);
+      const desc = ITEMS[stock[this.sub]].desc;
+      drawTyped(ctx, 16, desc + "\n" + this.msg, 999, info.x + 16, info.y + 14, 24);
+
+      setFont(ctx, 16);
+      ctx.fillStyle = GREY;
+      ctx.fillText("Z: buy     X: leave", 24, 460);
+    }
+  }
+
+  // --- OVERWORLD STATE ---
+  class OverworldState extends State {
+    constructor(game) {
+      super(game);
+      this.rooms = {};
+      this.room = this.getRoom(game.room_key);
+      this.player = new Player(game.spawn);
+      this.props = buildProps();
+      this.monsters = MONSTER_SPAWNS
+        .filter(spec => !game.defeated.has(spec[0]))
+        .map(spec => new Monster(...spec));
+      this.dialogue = null;
+      this.t = 0.0;
+      this.fade = 255.0;
+      this.fading = "in";
+      this.pending = null;
+      this.battleTarget = null;
+      this.alertT = 0.0;
+      this.cutscene = null;
+      this.bannerTime = 0.0;
+      this.bannerChapter = null;
+      this.fx = [];
+      this.onEnterRoom();
+    }
+
+    getRoom(key) {
+      if (!this.rooms[key]) this.rooms[key] = new Room(key);
+      return this.rooms[key];
+    }
+
+    roomProps() {
+      return this.props.filter(p => p.room === this.room.key && p.active(this.game));
+    }
+
+    roomMonsters() {
+      return this.monsters.filter(m => m.room === this.room.key && m.alive);
+    }
+
+    solids() {
+      return this.room.solids.concat(this.roomProps().filter(p => p.solid).map(p => p.rect));
+    }
+
+    playRoomMusic() { AUDIO.playMusic(this.room.music); }
+
+    resetFx() {
+      this.fx = [];
+      if (this.room.fx) {
+        this.fx = Array.from({ length: 36 }, () => [randRange(0, W), randRange(0, H), randRange(0, 6.28)]);
+      }
+    }
+
+    updateFx(dt) {
+      if (!this.room.fx) return;
+      const [, vy, sway] = FX[this.room.fx];
+      for (const p of this.fx) {
+        p[1] += vy * dt;
+        p[0] = ((p[0] + Math.sin(this.t + p[2]) * sway * dt) % W + W) % W;
+        if (p[1] < -4) p[1] = H + 4;
+        else if (p[1] > H + 4) p[1] = -4;
+      }
+    }
+
+    onEnterRoom() {
+      this.playRoomMusic();
+      this.resetFx();
+      this.game.room_key = this.room.key;
+      this.bannerTime = 3.5;
+      this.bannerChapter = null;
+      const flag = "seen_" + this.room.key;
+      if (this.room.chapter && !this.game.flags[flag]) {
+        this.game.flags[flag] = true;
+        this.bannerChapter = this.room.chapter;
+      }
+      if (this.room.key === "bellroom" && !this.game.defeated.has("boss")) {
+        this.cutscene = "boss";
+      } else if (this.room.key === "heartroot" && !this.game.defeated.has("heart")) {
+        this.cutscene = "heart";
+      }
+    }
+
+    say(speaker, pages, voice = "blip", onClose = null) {
+      this.dialogue = new DialogueBox(this.game.ctx, speaker, pages, voice, onClose);
+      this.player.walking = false;
+    }
+
+    startTransition(target, spawn) {
+      this.pending = [target, spawn];
+      this.fading = "out";
+      AUDIO.sfx("door");
+    }
+
+    startBattle(monster) {
+      this.battleTarget = monster;
+      this.fading = "alert";
+      this.alertT = (monster.uid === "boss" || monster.uid === "heart") ? 0.9 : 0.7;
+      this.player.walking = false;
+      AUDIO.sfx("alert");
+    }
+
+    enterPending() {
+      const [key, spawn] = this.pending;
+      this.room = this.getRoom(key);
+      this.player.place(spawn);
+      this.pending = null;
+      this.fading = "in";
+      this.onEnterRoom();
+    }
+
+    pushBack() {
+      const [tx, ty] = this.player.centerTile();
+      const dx = tx === 0 ? 1 : (tx === COLS - 1 ? -1 : 0);
+      const dy = ty === 0 ? 1 : (ty === ROWS - 1 ? -1 : 0);
+      this.player.place([tx + dx, ty + dy]);
+    }
+
+    runCutscene() {
+      const kind = this.cutscene;
+      this.cutscene = null;
+      const g = this.game;
+      if (kind === "boss") {
+        const boss = this.monsters.find(m => m.uid === "boss");
+        const lines = [
+          "...You carry a light. I remember lights.",
+          "Once I rang to call the valley home. Then the quarrel came, and I rang to end it.",
+          "Now I only toll. TOLL. I cannot stop!"
+        ];
+        if (g.kills > 0) lines.push("I hear the cave's grief on your hands, little one.");
+        lines.push("Leave me quiet, or learn what quiet costs!");
+        this.say("Hush", lines, "blip_low", () => this.startBattle(boss));
+      } else if (kind === "heart") {
+        const heart = this.monsters.find(m => m.uid === "heart");
+        const lines = [
+          "...You came down so far, little light.",
+          "The valley's quarrel did not end when the Bell fell quiet. It sank into the roots, and into me.",
+          "I hold every angry echo the cave ever heard. If you take them away, there is nothing left of me."
+        ];
+        if (g.kills > 0) lines.push("I can feel the quiet of those you hurt. It is very heavy.");
+        lines.push("So I will hold them tighter. Forgive me!");
+        this.say("Heartroot", lines, "blip_low", () => this.startBattle(heart));
+      }
+    }
+
+    handleKeyDown(e) {
+      if (this.fading) return;
+      const k = e.code;
+      if (CONFIRM_CODES.has(k)) {
+        if (this.dialogue) {
+          if (this.dialogue.advance()) {
+            const cb = this.dialogue.onClose;
+            this.dialogue = null;
+            if (cb) cb();
+          }
+          return;
+        }
+        const reach = rectInflate(this.player.hitbox(), 26, 26);
+        const cands = this.roomProps().filter(p => rectOverlap(reach, p.rect));
+        if (cands.length) {
+          cands.sort((a, b) =>
+            ((a.x - this.player.x) ** 2 + (a.y - this.player.y) ** 2) -
+            ((b.x - this.player.x) ** 2 + (b.y - this.player.y) ** 2)
+          );
+          cands[0].interact(this);
+        }
+      } else if (PAUSE_CODES.has(k) && !this.dialogue) {
+        this.game.changeState(new PauseState(this.game, this));
+      }
+    }
+
+    update(dt) {
+      this.t += dt;
+      this.bannerTime = Math.max(0.0, this.bannerTime - dt);
+      for (const m of this.monsters) m.update(dt);
+      this.updateFx(dt);
+
+      if (this.fading === "alert") {
+        this.alertT -= dt;
+        if (this.alertT <= 0) this.fading = "out";
+        return;
+      }
+      if (this.fading === "out") {
+        this.fade += 900 * dt;
+        if (this.fade >= 255) {
+          this.fade = 255;
+          if (this.battleTarget) {
+            const target = this.battleTarget;
+            this.battleTarget = null;
+            this.game.changeState(new BattleState(this.game, this, target));
+          } else {
+            this.enterPending();
+          }
+        }
+        return;
+      }
+      if (this.fading === "in") {
+        this.fade -= 900 * dt;
+        if (this.fade <= 0) {
+          this.fade = 0;
+          this.fading = null;
+        }
+        return;
+      }
+      if (this.dialogue) {
+        this.dialogue.update(dt);
+        this.player.walking = false;
+        return;
+      }
+      if (this.cutscene) {
+        this.runCutscene();
+        return;
+      }
+
+      this.player.update(dt, this.solids());
+      const [tx, ty] = this.player.centerTile();
+      const door = this.room.doors[`${tx},${ty}`];
+      if (door) {
+        const need = door.length > 2 ? door[2] : null;
+        if (need && !this.game.flags[need]) {
+          this.pushBack();
+          AUDIO.sfx("error");
+          this.say("", [door[3]]);
+        } else {
+          this.startTransition(door[0], door[1]);
+        }
+        return;
+      }
+
+      const box = this.player.hitbox();
+      for (const m of this.roomMonsters()) {
+        if (rectOverlap(box, m.rect)) {
+          this.startBattle(m);
+          return;
+        }
+      }
+    }
+
+    draw(ctx) {
+      ctx.drawImage(this.room.surface, 0, 0);
+
+      for (const [tx, ty, lamp] of this.room.lights) {
+        const cx = tx * TILE + TILE / 2, cy = ty * TILE + TILE / 2;
+        const alpha = (170 + Math.sin(this.t * 2.2 + tx) * 40) / 255;
+        const grad = ctx.createRadialGradient(cx, cy, 4, cx, cy, 76);
+        grad.addColorStop(0, `rgba(255, 230, 150, ${0.35 * alpha})`);
+        grad.addColorStop(1, "rgba(255, 230, 150, 0)");
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.arc(cx, cy, 76, 0, Math.PI * 2);
+        ctx.fill();
+        if (lamp) {
+          fillCircle(ctx, cx, cy, 5, rgb(255, 230, 150));
+          strokeCircle(ctx, cx, cy, 7, BELL, 2);
+        }
+      }
+
+      const drawables = [[this.player.y, c => this.player.draw(c)]];
+      for (const p of this.roomProps()) {
+        drawables.push([p.solid ? p.y : p.y - 40, c => p.draw(c, this.t, this.game)]);
+      }
+      for (const m of this.roomMonsters()) {
+        drawables.push([m.y, c => m.draw(c)]);
+      }
+      drawables.sort((a, b) => a[0] - b[0]);
+      for (const [, fn] of drawables) fn(ctx);
+
+      if (this.room.fx) {
+        const [color, , , size] = FX[this.room.fx];
+        ctx.fillStyle = color;
+        for (const [x, y] of this.fx) ctx.fillRect(x | 0, y | 0, size, size);
+      }
+
+      if (this.fading === "alert") {
+        if (Math.floor(this.alertT * 10) % 2 === 0) {
+          ctx.fillStyle = "rgba(255, 255, 255, 0.27)";
+          ctx.fillRect(0, 0, W, H);
+        }
+        drawCenteredText(ctx, "!", 34, Math.round(this.player.x), Math.round(this.player.y) - 62, YELLOW);
+      }
+
+      if (this.dialogue) {
+        this.dialogue.draw(ctx, this.player.y > 290);
+      } else if (this.bannerTime > 0) {
+        const alpha = Math.min(1.0, this.bannerTime / 0.8);
+        drawCenteredText(ctx, this.room.name, 22, W / 2, 24, WHITE, alpha);
+        if (this.bannerChapter) {
+          drawCenteredText(ctx, this.bannerChapter, 14, W / 2, 48, YELLOW, alpha);
+        }
+      }
+
+      if (!this.dialogue) {
+        setFont(ctx, 14);
+        ctx.fillStyle = GREY;
+        ctx.fillText("Arrows/WASD: move   Z: talk   C: menu   M: mute", 8, H - 20);
+      }
+
+      if (this.fade > 0) {
+        ctx.fillStyle = rgb(0, 0, 0, Math.min(1, this.fade / 255));
+        ctx.fillRect(0, 0, W, H);
+      }
+    }
+  }
+
+  // --- INTRO STATE ---
+  const INTRO_SLIDES = [
+    "Long ago, two peoples shared the valley:\nthe Lanternfolk and the Hollows.",
+    "The Lanternfolk carried light.\nThe Hollows carried silence.",
+    "When their quarrel grew too loud,\nthe great Bell of the valley was rung.",
+    "Its echo sealed the Hollows\nbeneath Mount Verren.",
+    "Legend says the Bell can ring only once more...",
+    "...and whoever falls beneath the mountain\nmust find their own way back.",
+  ];
+
+  class IntroState extends State {
+    constructor(game) {
+      super(game);
+      this.index = 0;
+      this.writer = new Typewriter(INTRO_SLIDES[0], 28);
+      this.fade = 255;
+      this.t = 0.0;
+      AUDIO.playMusic("cave");
+    }
+
+    drawScene(ctx, i) {
+      ctx.fillStyle = NIGHT;
+      ctx.fillRect(0, 0, W, H);
+      ctx.fillStyle = WHITE;
+      for (let k = 0; k < 40; k++) {
+        const x = (k * 97) % W, y = (k * 53) % 220;
+        const tw = 1 + Math.floor((Math.sin(this.t * 2 + k) + 1) * 0.6);
+        ctx.fillRect(x, y, tw, tw);
+      }
+      fillCircle(ctx, 500, 90, 36, MOON);
+      fillCircle(ctx, 514, 82, 30, NIGHT);
+      fillPoly(ctx, [[0, 330], [140, 200], [260, 290], [380, 170], [520, 300], [W, 240], [W, 340], [0, 340]], RIDGE);
+      ctx.fillStyle = rgb(18, 14, 36);
+      ctx.fillRect(0, 330, W, 150);
+
+      if (i >= 1) {
+        const r = 14 + Math.sin(this.t * 4) * 2;
+        fillCircle(ctx, 150, 310, r, YELLOW);
+        fillCircle(ctx, 150, 310, r / 2, rgb(255, 255, 200));
+      }
+      if (i >= 2) drawBell(ctx, 320, 305, 1.0);
+      if (i >= 3) fillEllipse(ctx, 440, 296, 90, 54, BLACK);
+      if (i >= 5) {
+        ctx.fillStyle = rgb(230, 120, 120);
+        ctx.fillRect(470, 320, 14, 14);
+      }
+    }
+
+    nextSlide() {
+      this.index++;
+      if (this.index >= INTRO_SLIDES.length) {
+        this.game.changeState(new TitleState(this.game));
+        return;
+      }
+      this.writer = new Typewriter(INTRO_SLIDES[this.index], 28);
+      this.fade = 255;
+    }
+
+    handleKeyDown(e) {
+      if (CONFIRM_CODES.has(e.code)) {
+        if (this.writer.done) this.nextSlide();
+        else this.writer.finish();
+      } else if (SKIP_CODES.has(e.code)) {
+        this.game.changeState(new TitleState(this.game));
+      }
+    }
+
+    update(dt) {
+      this.t += dt;
+      this.writer.update(dt);
+      this.fade = Math.max(0, this.fade - 400 * dt);
+    }
+
+    draw(ctx) {
+      this.drawScene(ctx, this.index);
+      ctx.fillStyle = BLACK;
+      ctx.fillRect(40, 370, W - 80, 90);
+      ctx.strokeStyle = WHITE;
+      ctx.lineWidth = 3;
+      ctx.strokeRect(40, 370, W - 80, 90);
+      drawTyped(ctx, 20, this.writer.text, this.writer.shown, 60, 384, 26);
+      if (this.writer.done && Math.floor(this.t * 2) % 2 === 0) {
+        fillPoly(ctx, [[W - 80, 432], [W - 64, 432], [W - 72, 444]], YELLOW);
+      }
+      setFont(ctx, 14);
+      ctx.fillStyle = GREY;
+      ctx.fillText("Z / Enter / Space: next    X: skip    F11: fullscreen", 60, 442);
+      if (this.fade > 0) {
+        ctx.fillStyle = rgb(0, 0, 0, this.fade / 255);
+        ctx.fillRect(0, 0, W, H);
+      }
+    }
+  }
+
+  // --- ENDINGS, TITLE, GALLERY, GAME OVER, CHOICE, CREDITS, TEASER, FINAL CARD ---
+  const ENDING_ORDER = ["mercy", "neutral", "hollow", "dawn", "keeper", "rootbound", "overgrown"];
+
+  const ENDINGS = {
+    mercy: {
+      title: "THE SOFT BELL", act: 1, hint: "Spare Warden Hush without ever killing.",
+      sky: [[255, 214, 150], [110, 80, 150]],
+      pages: [
+        "The tolling stops. For the first time in a hundred years, the valley is quiet.",
+        "Hush is only a bell again. You ring it softly, once, and the whole cave listens.",
+        "Light spills from the cavern roof. The Hollows step into it, and the Lanternfolk step out to meet them.",
+        "Wick lifts his lantern. 'You did not win a quarrel, little one. You ended it.'",
+        "You climb toward the surface with friends beside you all the way up.",
+      ],
+    },
+    neutral: {
+      title: "THE OFF-KEY BELL", act: 1, hint: "Spare Warden Hush after harming creatures.",
+      sky: [[80, 70, 110], [20, 20, 40]],
+      pages: [
+        "Hush quiets, though the cave remembers what happened along the way.",
+        "The bell rings once, a little out of tune. Some echoes will never stop.",
+        "You climb toward the surface. Behind you, the cave hums, uneasy but alive.",
+      ],
+    },
+    hollow: {
+      title: "THE LAST SILENCE", act: 1, hint: "Defeat Warden Hush.",
+      sky: [[30, 0, 0], [0, 0, 0]],
+      pages: [
+        "Hush cracks and falls silent. The valley holds its breath.",
+        "Silence spreads, the kind that never ends. Nothing in the cave will answer you now.",
+        "The Bell never rings again.",
+      ],
+    },
+    dawn: {
+      title: "THE FIRST SUNRISE", act: 2, hint: "Never kill. Spare the Heartroot, then climb.",
+      sky: [[255, 226, 160], [150, 110, 170]],
+      pages: [
+        "The Heartroot unclenches. Every old, angry echo drains out of the cave like water through a sieve.",
+        "Light pours down the Long Stair, through the Underroots, through the Hall, through all of it.",
+        "Bramble's gardens bloom. Cinder's forge sings. Quillby writes the first page of a new, quiet book.",
+        "Wick lifts the last lantern. 'The valley is ready for you, little one.'",
+        "You climb toward the surface, and the whole cave climbs with you.",
+      ],
+    },
+    keeper: {
+      title: "THE LANTERN KEEPER", act: 2, hint: "Never kill. Spare the Heartroot, then stay.",
+      sky: [[40, 70, 80], [10, 20, 30]],
+      pages: [
+        "The Heartroot settles, humming softly. It does not want to be alone again.",
+        "So you stay. You light the last lantern and set it where the Bell once rang.",
+        "Creatures come, one by one: moths, mushrooms, flames, and one very small firefly.",
+        "The surface can wait. The cave has a keeper now.",
+      ],
+    },
+    rootbound: {
+      title: "THE RESTLESS ROOTS", act: 2, hint: "Spare the Heartroot after harming creatures.",
+      sky: [[60, 90, 70], [15, 25, 20]],
+      pages: [
+        "The Heartroot quiets, but the old anger is only sleeping.",
+        "You climb toward the surface. Behind you, the roots keep humming, restless and listening.",
+      ],
+    },
+    overgrown: {
+      title: "THE WITHERED VALLEY", act: 2, hint: "Defeat the Heartroot.",
+      sky: [[40, 50, 40], [0, 0, 0]],
+      pages: [
+        "The Heartroot dims, and the roots let go all at once.",
+        "The old anger has nowhere left to sink. It seeps upward, into the valley, into the sky.",
+        "Nothing grows quietly any more.",
+      ],
+    },
+  };
+
+  class TitleState extends State {
+    constructor(game) {
+      super(game);
+      this.t = 0.0;
+      this.options = (game.hasSave() ? ["CONTINUE"] : []).concat(["NEW GAME", "ENDINGS"]);
+      this.sel = 0;
+      AUDIO.playMusic("title");
+    }
+
+    handleKeyDown(e) {
+      const k = e.code;
+      const g = this.game;
+      if (UP_CODES.has(k)) {
+        this.sel = (this.sel - 1 + this.options.length) % this.options.length;
+        AUDIO.sfx("select");
+      } else if (DOWN_CODES.has(k)) {
+        this.sel = (this.sel + 1) % this.options.length;
+        AUDIO.sfx("select");
+      } else if (CONFIRM_CODES.has(k)) {
+        AUDIO.sfx("confirm");
+        const opt = this.options[this.sel];
+        if (opt === "ENDINGS") {
+          g.changeState(new GalleryState(g));
+          return;
+        }
+        if (!(opt === "CONTINUE" && g.load())) {
+          g.newGame();
+        }
+        g.changeState(new OverworldState(g));
+      }
+    }
+
+    update(dt) { this.t += dt; }
+
+    draw(ctx) {
+      ctx.fillStyle = BLACK;
+      ctx.fillRect(0, 0, W, H);
+      const bob = Math.round(Math.sin(this.t * 2) * 5);
+      drawCenteredText(ctx, "HOLLOWBELL", 54, W / 2, 130 + bob, BELL);
+      drawBell(ctx, 320, 215, 0.9);
+      this.options.forEach((opt, n) => {
+        drawCenteredText(ctx, opt, 22, W / 2, 305 + n * 34, n === this.sel ? YELLOW : WHITE);
+        if (n === this.sel) drawHeart(ctx, W / 2 - 90, 305 + n * 34, 7);
+      });
+      const seen = this.game.endings.size;
+      drawCenteredText(ctx, `Endings found: ${seen}/${ENDING_ORDER.length}`, 16, W / 2, 430, GREY);
+      drawCenteredText(ctx, "Z: select    F11: fullscreen    M: mute", 16, W / 2, 458, GREY);
+    }
+  }
+
+  class GalleryState extends State {
+    handleKeyDown(e) {
+      if (CONFIRM_CODES.has(e.code) || BACK_CODES.has(e.code)) {
+        this.game.changeState(new TitleState(this.game));
+      }
+    }
+
+    draw(ctx) {
+      ctx.fillStyle = BLACK;
+      ctx.fillRect(0, 0, W, H);
+      const n = this.game.endings.size;
+      drawCenteredText(ctx, `ENDINGS  ${n}/${ENDING_ORDER.length}`, 30, W / 2, 40, BELL);
+      ENDING_ORDER.forEach((kind, i) => {
+        const info = ENDINGS[kind];
+        const seen = this.game.endings.has(kind);
+        const y = 84 + i * 52;
+        ctx.strokeStyle = seen ? WHITE : GREY;
+        ctx.lineWidth = 2;
+        ctx.strokeRect(40, y, 560, 44);
+        setFont(ctx, 20);
+        ctx.fillStyle = seen ? YELLOW : GREY;
+        ctx.fillText(`ACT ${info.act}  ` + (seen ? info.title : "???"), 54, y + 4);
+        setFont(ctx, 15);
+        ctx.fillStyle = seen ? WHITE : GREY;
+        ctx.fillText(info.hint, 54, y + 24);
+      });
+      setFont(ctx, 15);
+      ctx.fillStyle = GREY;
+      ctx.fillText("Z or X: back", 40, 456);
+    }
+  }
+
+  class GameOverState extends State {
+    constructor(game) {
+      super(game);
+      this.t = 0.0;
+      this.writer = new Typewriter("You cannot give up just yet. Rise, little one...", 18, "blip_low");
+      AUDIO.playMusic(null);
+    }
+
+    handleKeyDown(e) {
+      if (CONFIRM_CODES.has(e.code) && this.t > 2.5) {
+        const g = this.game;
+        if (!g.load()) g.newGame();
+        g.hp = g.max_hp;
+        g.changeState(new OverworldState(g));
+      }
+    }
+
+    update(dt) {
+      this.t += dt;
+      if (this.t > 1.0) this.writer.update(dt);
+    }
+
+    draw(ctx) {
+      ctx.fillStyle = BLACK;
+      ctx.fillRect(0, 0, W, H);
+      drawCenteredText(ctx, "GAME OVER", 54, W / 2, 160, RED);
+      drawTyped(ctx, 20, this.writer.text, this.writer.shown, 90, 260, 26);
+      if (this.t > 2.5 && Math.floor(this.t * 2) % 2 === 0) {
+        drawCenteredText(ctx, "- press Z to rise from the last save -", 20, W / 2, 380, WHITE);
+      }
+    }
+  }
+
+  class ChoiceState extends State {
+    constructor(game, prompt, options, makers) {
+      super(game);
+      this.text = wrapText(game.ctx, prompt, 20, 520).join("\n");
+      this.options = options;
+      this.makers = makers;
+      this.sel = 0;
+      this.t = 0.0;
+      this.writer = new Typewriter(this.text, 30, "blip_low");
+      AUDIO.playMusic("quiet");
+    }
+
+    handleKeyDown(e) {
+      const k = e.code;
+      if (!this.writer.done) {
+        if (CONFIRM_CODES.has(k)) this.writer.finish();
+        return;
+      }
+      if (UP_CODES.has(k)) {
+        this.sel = (this.sel - 1 + this.options.length) % this.options.length;
+        AUDIO.sfx("select");
+      } else if (DOWN_CODES.has(k)) {
+        this.sel = (this.sel + 1) % this.options.length;
+        AUDIO.sfx("select");
+      } else if (CONFIRM_CODES.has(k)) {
+        AUDIO.sfx("confirm");
+        this.game.changeState(this.makers[this.sel]());
+      }
+    }
+
+    update(dt) {
+      this.t += dt;
+      this.writer.update(dt);
+    }
+
+    draw(ctx) {
+      for (let y = 0; y < H; y += 4) {
+        const f = y / H;
+        ctx.fillStyle = rgb(40 + 30 * f, 10 + 20 * f, 40 + 20 * f);
+        ctx.fillRect(0, y, W, 4);
+      }
+      drawHeartroot(ctx, 320, 130, this.t, 1.4);
+      const box = { x: 40, y: 260, w: 560, h: 100 };
+      drawPanel(ctx, box);
+      drawTyped(ctx, 20, this.writer.text, this.writer.shown, 60, 274, 26);
+      if (this.writer.done) {
+        setFont(ctx, 20);
+        this.options.forEach((opt, n) => {
+          ctx.fillStyle = n === this.sel ? YELLOW : WHITE;
+          ctx.fillText(opt, 140, 384 + n * 34);
+          if (n === this.sel) drawHeart(ctx, 118, 394 + n * 34, 7);
+        });
+      }
+    }
+  }
+
+  class EndingState extends State {
+    constructor(game, kind) {
+      super(game);
+      this.kind = kind;
+      this.t = 0.0;
+      this.kit = new Player([0, 0]);
+      const info = ENDINGS[kind];
+      const pages = [...info.pages, `ENDING ${ENDING_ORDER.indexOf(kind) + 1} OF ${ENDING_ORDER.length}\n${info.title}`];
+      this.dialogue = new DialogueBox(game.ctx, "", pages, "blip");
+      AUDIO.playMusic(kind !== "hollow" ? "ending" : null);
+      AUDIO.sfx("bell");
+      game.shake(6, 0.5);
+      if (info.act === 1) game.flags.ending = kind;
+      game.recordEnding(kind);
+      game.save();
+    }
+
+    handleKeyDown(e) {
+      if (CONFIRM_CODES.has(e.code)) {
+        if (this.dialogue.advance()) {
+          const g = this.game;
+          const nxt = ENDINGS[this.kind].act === 2
+            ? () => new FinalCardState(g, this.kind)
+            : () => new TeaserState(g, this.kind);
+          g.changeState(new CreditsState(g, nxt));
+        }
+      }
+    }
+
+    update(dt) {
+      this.t += dt;
+      this.dialogue.update(dt);
+    }
+
+    drawKit(ctx, x, y) {
+      this.kit.x = x;
+      this.kit.y = y - 7;
+      this.kit.draw(ctx);
+    }
+
+    rays(ctx, cx, cy, count = 14, length = 460) {
+      for (let i = 0; i < count; i++) {
+        const ang = i * Math.PI * 2 / count + this.t * 0.2;
+        drawLine(ctx, cx, cy, cx + Math.cos(ang) * length, cy + Math.sin(ang) * length, rgb(255, 240, 190), 2);
+      }
+    }
+
+    draw(ctx) {
+      const [top, bot] = ENDINGS[this.kind].sky;
+      for (let y = 0; y < H; y += 4) {
+        const f = y / H;
+        ctx.fillStyle = rgb(
+          top[0] + (bot[0] - top[0]) * f,
+          top[1] + (bot[1] - top[1]) * f,
+          top[2] + (bot[2] - top[2]) * f
+        );
+        ctx.fillRect(0, y, W, 4);
+      }
+      this["scene_" + this.kind](ctx);
+      this.dialogue.draw(ctx);
+    }
+
+    scene_mercy(ctx) {
+      this.rays(ctx, 320, 140, 12, 420);
+      drawBell(ctx, 320, 150, 1.8);
+      drawWick(ctx, 520, 320, this.t);
+      drawWick(ctx, 120, 320, this.t);
+    }
+    scene_neutral(ctx) {
+      drawBell(ctx, 320, 150, 1.8);
+      this.drawKit(ctx, 320, 320);
+    }
+    scene_hollow(ctx) {
+      drawBell(ctx, 320, 150, 1.8, 60, 60, 60);
+    }
+    scene_dawn(ctx) {
+      this.rays(ctx, 320, 230, 18, 480);
+      fillCircle(ctx, 320, 230, 54, rgb(255, 235, 160));
+      drawWick(ctx, 110, 330, this.t);
+      drawBramble(ctx, 210, 330, this.t);
+      this.drawKit(ctx, 320, 330);
+      drawQuillby(ctx, 430, 330, this.t);
+      drawCinder(ctx, 530, 330, this.t);
+    }
+    scene_keeper(ctx) {
+      drawRootsDecor(ctx, this.t, rgb(50, 110, 70));
+      for (let r = 90; r > 0; r -= 10) {
+        strokeCircle(ctx, 320, 210, r, rgb(60 + (90 - r), 90 + (90 - r), 70), 2);
+      }
+      drawSavepoint(ctx, 320, 210, this.t);
+      drawWick(ctx, 120, 330, this.t);
+      this.drawKit(ctx, 320, 330);
+      drawPip(ctx, 430, 230 + Math.sin(this.t * 3) * 6, this.t);
+    }
+    scene_rootbound(ctx) {
+      drawRootsDecor(ctx, this.t, rgb(60, 130, 70));
+      drawHeartroot(ctx, 320, 160, this.t, 1.2);
+    }
+    scene_overgrown(ctx) {
+      drawRootsDecor(ctx, this.t, rgb(70, 80, 70), 16);
+      this.drawKit(ctx, 320, 330);
+    }
+  }
+
+  class CreditsState extends State {
+    constructor(game, nxt) {
+      super(game);
+      this.LINES = [
+        "HOLLOWBELL", "", "A game built with HTML5 Canvas and Web Audio", "",
+        "~ Characters ~",
+        "Kit, the fallen child", "Wick, keeper of the last lantern", "Mossback, the merchant",
+        "Bramble, the gardener", "Quillby, the archivist", "Cinder, the smith", "Pip, the firefly",
+        "", "~ Creatures ~",
+        "Mothlet", "Gloomcap", "Hushwisp", "Rootling", "Inkblot", "Cinderling", "Clinker",
+        "", "~ Echoes ~",
+        "Warden Hush", "The Heartroot",
+        "", "~ Remember ~",
+        "Every creature is telling you something.", "", "Thanks for playing!"
+      ];
+      this.nxt = nxt;
+      this.y = H;
+      AUDIO.playMusic("ending");
+    }
+
+    handleKeyDown(e) {
+      if (CONFIRM_CODES.has(e.code) || BACK_CODES.has(e.code)) {
+        this.game.changeState(this.nxt());
+      }
+    }
+
+    update(dt) {
+      this.y -= 45 * dt;
+      if (this.y + this.LINES.length * 36 < 0) {
+        this.game.changeState(this.nxt());
+      }
+    }
+
+    draw(ctx) {
+      ctx.fillStyle = BLACK;
+      ctx.fillRect(0, 0, W, H);
+      this.LINES.forEach((line, n) => {
+        const color = (n === 0 || line.startsWith("~")) ? BELL : WHITE;
+        drawCenteredText(ctx, line, 22, W / 2, Math.round(this.y) + n * 36, color);
+      });
+    }
+  }
+
+  class TeaserState extends State {
+    constructor(game, kind) {
+      super(game);
+      this.t = 0.0;
+      const text = kind === "hollow"
+        ? "The silence does not last. Something far below begins to beat."
+        : "Far below the Bell, something begins to hum. The way down is open.";
+      this.writer = new Typewriter(wrapText(game.ctx, text, 20, 520).join("\n"), 22, "blip_low");
+      AUDIO.playMusic(null);
+    }
+
+    begin() {
+      const g = this.game;
+      g.flags.act2 = true;
+      g.room_key = "bellroom";
+      g.spawn = [2, 7];
+      g.hp = g.max_hp;
+      g.save();
+      g.changeState(new OverworldState(g));
+    }
+
+    handleKeyDown(e) {
+      if (CONFIRM_CODES.has(e.code) && this.t > 2.5) {
+        if (!this.writer.done) this.writer.finish();
+        else this.begin();
+      }
+    }
+
+    update(dt) {
+      this.t += dt;
+      if (this.t > 2.5) this.writer.update(dt);
+    }
+
+    draw(ctx) {
+      ctx.fillStyle = BLACK;
+      ctx.fillRect(0, 0, W, H);
+      drawCenteredText(ctx, "TO BE CONTINUED...", 40, W / 2, 150, BELL, Math.min(1.0, this.t / 2.0));
+      drawTyped(ctx, 20, this.writer.text, this.writer.shown, 60, 250, 28);
+      if (this.writer.done) {
+        drawCenteredText(ctx, "ACT 2: THE UNDERROOTS", 40, W / 2, 380, YELLOW);
+        if (Math.floor(this.t * 2) % 2 === 0) {
+          drawCenteredText(ctx, "- press Z -", 16, W / 2, 430, GREY);
+        }
+      }
+    }
+  }
+
+  class FinalCardState extends State {
+    constructor(game, kind) {
+      super(game);
+      this.kind = kind;
+      this.t = 0.0;
+      AUDIO.playMusic("ending");
+    }
+
+    handleKeyDown(e) {
+      if (CONFIRM_CODES.has(e.code) && this.t > 1.5) {
+        this.game.changeState(new TitleState(this.game));
+      }
+    }
+
+    update(dt) { this.t += dt; }
+
+    draw(ctx) {
+      const g = this.game;
+      ctx.fillStyle = BLACK;
+      ctx.fillRect(0, 0, W, H);
+      drawCenteredText(ctx, "THE END", 54, W / 2, 110, BELL, Math.min(1.0, this.t / 1.5));
+      drawCenteredText(ctx, ENDINGS[this.kind].title, 22, W / 2, 170, YELLOW);
+      const rows = [
+        `Creatures spared   ${g.spares}`,
+        `Creatures defeated ${g.kills}`,
+        `Final LV           ${g.lv}`,
+        `Gold               ${g.gold}`,
+        `Endings found      ${g.endings.size}/${ENDING_ORDER.length}`
+      ];
+      setFont(ctx, 22);
+      ctx.fillStyle = WHITE;
+      rows.forEach((row, i) => ctx.fillText(row, 180, 230 + i * 34));
+      if (this.t > 1.5 && Math.floor(this.t * 2) % 2 === 0) {
+        drawCenteredText(ctx, "- press Z for the title screen -", 16, W / 2, 440, GREY);
+      }
+    }
+  }
+
+  // =========================================================================
+  // MAIN GAME CONTROLLER
+  // =========================================================================
+  class Game {
+    constructor(canvas) {
+      this.canvas = canvas;
+      this.ctx = canvas.getContext("2d");
+      this.SAVE_KEY = "hollowbell_save";
+      this.META_KEY = "hollowbell_meta";
+
+      this.shakeT = 0.0;
+      this.shakeMag = 0;
+      this.flashT = 0.0;
+      this.flashDur = 0.1;
+      this.flashColor = [255, 255, 255];
+
+      this.endings = new Set();
+      this.loadMeta();
+      this.newGame();
+      this.state = new IntroState(this);
+    }
+
+    newGame() {
+      this.hp = this.max_hp = 20;
+      this.lv = 1;
+      this.exp = 0;
+      this.gold = 0;
+      this.items = ["Glow Berry", "Glow Berry"];
+      this.weapon = "Twig";
+      this.armor = "Wool Scarf";
+      this.flags = {};
+      this.kills = 0;
+      this.spares = 0;
+      this.room_key = "landing";
+      this.spawn = [...ROOM_DATA.landing.spawn];
+      this.defeated = new Set();
+    }
+
+    get atk() {
+      return 2 * (this.lv - 1) + (ITEMS[this.weapon].atk || 0);
+    }
+
+    get defense() {
+      return Math.floor((this.lv - 1) / 2) + (ITEMS[this.armor].def || 0);
+    }
+
+    expToNext() {
+      return this.lv < EXP_TABLE.length ? EXP_TABLE[this.lv] - this.exp : 0;
+    }
+
+    gainExp(n) {
+      this.exp += n;
+      while (this.lv < EXP_TABLE.length && this.exp >= EXP_TABLE[this.lv]) {
+        this.lv++;
+        this.max_hp += 4;
+        this.hp = Math.min(this.max_hp, this.hp + 4);
+      }
+    }
+
+    useItem(i) {
+      const name = this.items[i];
+      const it = ITEMS[name];
+      if (it.type === "heal") {
+        this.items.splice(i, 1);
+        const before = this.hp;
+        this.hp = Math.min(this.max_hp, this.hp + it.amount);
+        AUDIO.sfx("heal");
+        return `You used the ${name}. Recovered ${this.hp - before} HP!`;
+      }
+      AUDIO.sfx("confirm");
+      if (it.type === "weapon") {
+        [this.items[i], this.weapon] = [this.weapon, name];
+        return `You equipped the ${name}. ATK is now ${this.atk}.`;
+      }
+      [this.items[i], this.armor] = [this.armor, name];
+      return `You equipped the ${name}. DEF is now ${this.defense}.`;
+    }
+
+    hasSave() {
+      try { return !!localStorage.getItem(this.SAVE_KEY); }
+      catch (e) { return false; }
+    }
+
+    save() {
+      const data = {
+        hp: this.hp, max_hp: this.max_hp, lv: this.lv, exp: this.exp, gold: this.gold,
+        items: this.items, weapon: this.weapon, armor: this.armor, flags: this.flags,
+        kills: this.kills, spares: this.spares, room_key: this.room_key,
+        spawn: [...this.spawn], defeated: Array.from(this.defeated).sort()
+      };
+      try {
+        localStorage.setItem(this.SAVE_KEY, JSON.stringify(data));
+        return true;
+      } catch (e) {
+        return false;
+      }
+    }
+
+    load() {
+      try {
+        const raw = localStorage.getItem(this.SAVE_KEY);
+        if (!raw) return false;
+        const data = JSON.parse(raw);
+        this.newGame();
+        this.lv = clamp(parseInt(data.lv || 1, 10), 1, EXP_TABLE.length);
+        this.max_hp = parseInt(data.max_hp || 20, 10);
+        this.hp = Math.min(this.max_hp, parseInt(data.hp || this.max_hp, 10));
+        this.exp = parseInt(data.exp || 0, 10);
+        this.gold = parseInt(data.gold || 0, 10);
+        this.items = (data.items || []).filter(n => n in ITEMS).slice(0, INVENTORY_MAX);
+        this.weapon = (data.weapon in ITEMS) ? data.weapon : "Twig";
+        this.armor = (data.armor in ITEMS) ? data.armor : "Wool Scarf";
+        this.flags = { ...(data.flags || {}) };
+        this.kills = parseInt(data.kills || 0, 10);
+        this.spares = parseInt(data.spares || 0, 10);
+        this.room_key = (data.room_key in ROOM_DATA) ? data.room_key : "landing";
+        const sp = data.spawn || ROOM_DATA[this.room_key].spawn;
+        this.spawn = [parseInt(sp[0], 10), parseInt(sp[1], 10)];
+        this.defeated = new Set(data.defeated || []);
+        return true;
+      } catch (e) {
+        return false;
+      }
+    }
+
+    loadMeta() {
+      try {
+        const raw = localStorage.getItem(this.META_KEY);
+        if (!raw) return;
+        const data = JSON.parse(raw);
+        this.endings = new Set((data.endings || []).filter(k => k in ENDINGS));
+      } catch (e) {
+        this.endings = new Set();
+      }
+    }
+
+    recordEnding(kind) {
+      this.endings.add(kind);
+      try {
+        localStorage.setItem(this.META_KEY, JSON.stringify({ endings: Array.from(this.endings).sort() }));
+      } catch (e) {}
+    }
+
+    shake(mag, dur) { this.shakeMag = mag; this.shakeT = dur; }
+    flash(color, dur) { this.flashColor = color; this.flashT = dur; this.flashDur = dur; }
+    changeState(newState) { this.state = newState; }
+
+    step(dt) {
+      AUDIO.update(dt);
+      this.shakeT = Math.max(0.0, this.shakeT - dt);
+      this.flashT = Math.max(0.0, this.flashT - dt);
+      this.state.update(dt);
+
+      const ctx = this.ctx;
+      ctx.save();
+      if (this.shakeT > 0) {
+        const m = Math.max(1, Math.round(this.shakeMag * Math.min(1.0, this.shakeT / 0.2)));
+        const ox = Math.floor(randRange(-m, m + 1));
+        const oy = Math.floor(randRange(-m, m + 1));
+        ctx.fillStyle = BLACK;
+        ctx.fillRect(0, 0, W, H);
+        ctx.translate(ox, oy);
+      }
+      this.state.draw(ctx);
+      if (this.flashT > 0) {
+        const alpha = (150 * this.flashT / this.flashDur) / 255;
+        ctx.fillStyle = rgb(...this.flashColor, alpha);
+        ctx.fillRect(0, 0, W, H);
+      }
+      ctx.restore();
+    }
+  }
+
+  // =========================================================================
+  // BOOTSTRAP, INPUT BINDINGS, FULLSCREEN & TOUCH
+  // =========================================================================
+  window.addEventListener("load", () => {
+    const canvas = document.getElementById("game");
+    const game = new Game(canvas);
+
+    function toggleFullscreen() {
+      const wrap = document.getElementById("stage-wrap");
+      if (!document.fullscreenElement) {
+        (wrap.requestFullscreen || canvas.requestFullscreen).call(wrap).catch(() => {});
+      } else {
+        document.exitFullscreen().catch(() => {});
+      }
+    }
+
+    document.getElementById("btn-mute").addEventListener("click", () => {
+      AUDIO.unlock();
+      AUDIO.toggleMute();
+    });
+
+    document.getElementById("btn-fs").addEventListener("click", () => {
+      AUDIO.unlock();
+      toggleFullscreen();
+    });
+
+    window.addEventListener("keydown", (e) => {
+      AUDIO.unlock();
+      if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Space", "Tab"].includes(e.code)) {
+        e.preventDefault();
+      }
+      if (e.code === "KeyM") {
+        AUDIO.toggleMute();
+        return;
+      }
+      if (e.code === "F11" || ((e.code === "Enter" || e.code === "NumpadEnter") && e.altKey)) {
+        e.preventDefault();
+        toggleFullscreen();
+        return;
+      }
+      if (!e.repeat) {
+        keysDown.add(e.code);
+        game.state.handleKeyDown(e);
+      }
+    });
+
+    window.addEventListener("keyup", (e) => {
+      keysDown.delete(e.code);
+    });
+
+    window.addEventListener("blur", () => keysDown.clear());
+    canvas.addEventListener("pointerdown", () => AUDIO.unlock());
+
+    // Mobile Touch D-Pad & Action Buttons
+    document.querySelectorAll(".tbtn").forEach(btn => {
+      const code = btn.dataset.key;
+      const press = (ev) => {
+        ev.preventDefault();
+        AUDIO.unlock();
+        btn.classList.add("pressed");
+        if (!keysDown.has(code)) {
+          keysDown.add(code);
+          game.state.handleKeyDown({ code, altKey: false, repeat: false });
+        }
+      };
+      const release = (ev) => {
+        ev.preventDefault();
+        btn.classList.remove("pressed");
+        keysDown.delete(code);
+      };
+      btn.addEventListener("pointerdown", press);
+      btn.addEventListener("pointerup", release);
+      btn.addEventListener("pointerleave", release);
+      btn.addEventListener("pointercancel", release);
+    });
+
+    let lastTime = performance.now();
+    function loop(now) {
+      const dt = Math.min((now - lastTime) / 1000.0, 0.05);
+      lastTime = now;
+      game.step(dt);
+      requestAnimationFrame(loop);
+    }
+    requestAnimationFrame(loop);
+  });
+})();
+</script>
+</body>
+</html>
